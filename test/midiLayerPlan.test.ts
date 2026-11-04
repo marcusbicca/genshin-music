@@ -132,6 +132,23 @@ describe('foldPhrases', () => {
         expect(result.notes.map(n => n.midi)).toEqual([lowest, lowest + 2, highest - 10, highest - 8])
     })
 
+    it('keeps a quarter-note melody with no rest as one phrase', () => {
+        // starts a quarter apart, each note lasting until the next: no rest anywhere
+        const melody = line([highest - 4, highest - 2, highest, highest + 2], 0, 0.5)
+        const result = foldPhrases(melody, options)
+        expect(result.movedPhrases).toBe(1)
+        expect(result.notes.map(n => n.midi)).toEqual(melody.map(n => n.midi - 12))
+    })
+
+    it('leaves a long line in place when a move would save only a few of its notes', () => {
+        // 20 notes in range and 2 above it: moving all 22 down an octave to save 2 is not worth it
+        const inside = Array.from({length: 20}, (_, i) => highest - (i % 5))
+        const notes = line([...inside, highest + 2, highest + 4])
+        const result = foldPhrases(notes, options)
+        expect(result.movedPhrases).toBe(0)
+        expect(result.notes.map(n => n.midi)).toEqual(notes.map(n => n.midi))
+    })
+
     it('counts the range extensions as reachable', () => {
         const result = foldPhrases(line([highest + 2]), {...options, instruments: [instrument, instrument]})
         expect(result.movedPhrases).toBe(1)

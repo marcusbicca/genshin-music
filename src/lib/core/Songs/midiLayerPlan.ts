@@ -114,9 +114,22 @@ export type PhraseFoldResult = {
 }
 
 /**
+ * A phrase is moved only when the move brings back at least this share of its notes. A long
+ * accompaniment line that strays out of range for a few notes stays where it is (those notes are
+ * the out-of-range toggle's business): moving all of it an octave to save a handful lifted a bass
+ * line into the melody's octave, where it doubled the other parts of the same instrument.
+ */
+const MIN_PHRASE_GAIN = 0.25
+
+/**
  * Move every phrase that does not fit by the whole-octave shift that brings the most of its notes
- * inside the instruments' range (ties: the smallest move, no move first). Phrases that already fit
- * are untouched, so a track the fit placed well comes back unchanged.
+ * inside the instruments' range (ties: the smallest move, no move first), when that saves enough of
+ * the phrase (MIN_PHRASE_GAIN). Phrases that already fit are untouched, so a track the fit placed
+ * well comes back unchanged.
+ *
+ * Phrases are split at RESTS - silence between the end of every sounding note and the next start -
+ * not at the distance between note starts: a melody of quarter notes has no rest, and splitting it
+ * start to start made every note its own phrase, moved octave by octave on its own.
  */
 export function foldPhrases(notes: readonly PlanNote[], options: PhraseFoldOptions): PhraseFoldResult {
     const ranges = options.instruments.map(name => {
@@ -130,11 +143,12 @@ export function foldPhrases(notes: readonly PlanNote[], options: PhraseFoldOptio
     }
     const sorted = [...notes].sort((a, b) => a.time - b.time)
     const phrases: PlanNote[][] = []
-    let lastStart = -Infinity
+    let soundingUntil = -Infinity
     for (const note of sorted) {
-        if (phrases.length === 0 || note.time - lastStart >= options.phraseGapSeconds) phrases.push([])
+        //a tiny tolerance: a note that ends exactly where the next starts leaves no rest
+        if (phrases.length === 0 || note.time - soundingUntil >= options.phraseGapSeconds - 1e-6) phrases.push([])
         phrases[phrases.length - 1].push(note)
-        lastStart = Math.max(lastStart, note.time)
+        soundingUntil = Math.max(soundingUntil, note.time + Math.max(0, note.duration))
     }
     const shifts = [0]
     for (let octave = 1; octave <= Math.max(0, Math.floor(options.maxOctaves)); octave++) {
@@ -144,15 +158,19 @@ export function foldPhrases(notes: readonly PlanNote[], options: PhraseFoldOptio
     let movedPhrases = 0
     for (const phrase of phrases) {
         let best = 0
-        if (!phrase.every(note => inRange(note.midi))) {
-            let bestCount = -1
+        const fitting = (shift: number) =>
+            phrase.reduce((total, note) => total + (inRange(note.midi + shift) ? 1 : 0), 0)
+        const here = fitting(0)
+        if (here < phrase.length) {
+            let bestCount = here
             for (const shift of shifts) {
-                const count = phrase.reduce((total, note) => total + (inRange(note.midi + shift) ? 1 : 0), 0)
+                const count = fitting(shift)
                 if (count > bestCount) {
                     bestCount = count
                     best = shift
                 }
             }
+            if (bestCount - here < Math.max(1, phrase.length * MIN_PHRASE_GAIN)) best = 0
         }
         if (best !== 0) movedPhrases++
         for (const note of phrase) out.push(best === 0 ? note : {...note, midi: note.midi + best})
