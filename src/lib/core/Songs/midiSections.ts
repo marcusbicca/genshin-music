@@ -114,3 +114,15 @@ function predominantTempo(tempos: readonly {time: number; bpm: number}[], start:
     }
     return best
 }
+
+/**
+ * Sections `from`..`to` (inclusive) as one import range: detection sometimes cuts an interlude or a
+ * bridge away from the song it belongs to, and the user joins it back by picking where the range
+ * ends. Tempo and key are the first section's - the range is imported as that song.
+ */
+export function mergeSectionRange(sections: readonly MidiSection[], from: number, to: number): MidiSection | undefined {
+    const first = sections[from]
+    if (!first) return undefined
+    const last = sections[Math.min(Math.max(to, from), sections.length - 1)]
+    return {...first, end: last.end}
+}

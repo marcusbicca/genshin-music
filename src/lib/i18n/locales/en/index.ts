@@ -917,11 +917,24 @@ export const i18n_en = {
       auto_fit: 'Auto fit',
       auto_fit_tracks_description:
         'Picks, for every track, the layer pitch and octave that put the most notes on its instrument buttons (no accidentals, nothing out of range). Runs automatically when a MIDI is opened.',
-      auto_fit_done: 'Tracks fitted: {{accidentals}} accidentals, {{stranded}} notes the instruments cannot play',
+      auto_fit_done:
+        'Tracks fitted: {{accidentals}} accidentals, {{stranded}} notes the instruments cannot play',
       section: 'Section',
       section_description:
         'Medleys change key and tempo between songs. Pick one section to import it as its own song, with its own tempo and pitch.',
       whole_file: 'Whole file',
+      section_until: 'Until section',
+      section_until_description:
+        'Import several sections in a row as one song, for when the detection split an interlude or a bridge from its song. Tempo and pitch come from the first one.',
+      auxiliary_layers: 'Extra layers for notes that do not fit',
+      auxiliary_layers_description:
+        "Each track keeps one main layer on the scale that fits the most notes. Notes it can't play (accidentals, or notes past its range) go to extra layers of the same instrument on other scales - always the scale that takes the most notes, so as few layers as possible are added - or to an instrument that continues its range (Piano continues into Winter Piano).",
+      phrase_octaves: 'Move whole phrases between octaves',
+      phrase_octaves_description:
+        "When part of a track is out of the instrument's range, the whole phrase (notes up to a rest of a quarter note) moves up or down an octave, so a melody never jumps octave in the middle of a phrase.",
+      extra_layers: '+{{n}} layers',
+      drum_track: 'Drum track (mapped to the instrument keys)',
+      unmapped_drum_hits: '{{n}} hits with no key',
       keep_all_durations: 'Keep note lengths on every layer',
       keep_all_durations_description:
         "Store each note's length even on instruments that can't hold notes (they play it as a tap). If you change the layer to an instrument that sustains, the long notes are already there.",

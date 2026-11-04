@@ -54,6 +54,11 @@
         checked={data.selected}
       />
       {`${data.name} (${data.track.notes.length}, ${data.track.instrument.family})`}
+      {#if data.selected && data.extraLayers > 0}
+        <span class="midi-track-badge">
+          {t('composer:midi_parser.extra_layers', { n: `${data.extraLayers}` })}
+        </span>
+      {/if}
     </div>
     <div class="midi-track-center">
       <InstrumentSelect
@@ -132,6 +137,16 @@
         </option>
       </PitchSelect>
     </Row>
+    {#if data.percussion}
+      <Row align="center" justify="between">
+        <div>{t('composer:midi_parser.drum_track')}</div>
+        <div>
+          {data.unmappedHits > 0
+            ? t('composer:midi_parser.unmapped_drum_hits', { n: `${data.unmappedHits}` })
+            : ''}
+        </div>
+      </Row>
+    {/if}
     <MidiStatsTable
       notes={data.track.notes.length}
       accidentals={data.numberOfAccidentals}
@@ -142,6 +157,16 @@
 </Column>
 
 <style>
+  .midi-track-badge {
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: 0.3rem;
+    background-color: var(--secondary);
+    color: var(--secondary-text);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
   /* The row's background lives on the HEADER alone (TrackInfo paints it inline); the column
      itself only ever contributes the open-state border below. */
   .midi-track-wrapper {

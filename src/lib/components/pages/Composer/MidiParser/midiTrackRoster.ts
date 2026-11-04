@@ -20,6 +20,12 @@ export type CustomTrack = {
   outOfRange: number;
   localOffset: number | null;
   maxScaling: number;
+  /** A General MIDI drum track (channel 10): its notes name drums, not pitches. */
+  percussion: boolean;
+  /** Auxiliary layers the last conversion gave this track (accidentals, range extensions). */
+  extraLayers: number;
+  /** Drum hits the chosen instrument's percussion map has no button for. */
+  unmappedHits: number;
   outOfRangeBounds: {
     lower: number;
     upper: number;
@@ -55,6 +61,13 @@ export function parseMidiTrackName(rawName: string, originalIndex: number): Midi
   }
 
   return { rawName, name, alias: rawName, pitch: '' };
+}
+
+/** Channel 10 (index 9) is General MIDI's drum kit; @tonejs/midi also flags it on the instrument. */
+export function isPercussionTrack(
+  track: Pick<Track, 'channel'> & { instrument?: { percussion?: boolean } }
+) {
+  return track.channel === 9 || track.instrument?.percussion === true;
 }
 
 /**
@@ -94,6 +107,9 @@ export function buildMidiTrackRoster(
         numberOfAccidentals: 0,
         outOfRange: 0,
         maxScaling: 0,
+        percussion: isPercussionTrack(track),
+        extraLayers: 0,
+        unmappedHits: 0,
         outOfRangeBounds: {
           lower: 0,
           upper: 0,

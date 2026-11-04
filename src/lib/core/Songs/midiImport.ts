@@ -140,6 +140,38 @@ function transformMidiNumber(
 }
 
 /**
+ * Whether ONE file note lands cleanly on a layer: a real button of that instrument (not snapped
+ * from an accidental, not stranded, inside the Addressable Span). This is the question the layer
+ * planner (midiLayerPlan.ts) asks of every candidate layer, answered by the same policy the
+ * conversion uses, so a note the plan routes to a layer is a note the conversion will place there.
+ */
+export function midiNoteFitsLayer(
+    midi: number,
+    instrumentName: string,
+    pitch: Pitch,
+    localOffset: number
+): boolean {
+    const transformed = transformMidiNumber(midi, {instrumentName, pitch, localOffset, maxScaling: 0}, 0)
+    return !transformed.isAccidental && transformed.voiceable && transformed.addressable
+}
+
+/**
+ * Resolved Note Number for a track whose `notes[].midi` are ALREADY Note Numbers (percussion
+ * mapped onto buttons by midiLayerPlan.mapPercussionNotes): no offset, fold or snap applies.
+ */
+function directNumber(number: number, instrumentName: string, pitch: Pitch): MidiNumberTransform {
+    const voiceable = Number.isFinite(number) && numberToButton(instrumentName, pitch, number) !== -1
+    const span = addressableSpan()
+    return {
+        number,
+        isAccidental: false,
+        voiceable,
+        addressable: Number.isFinite(number) && number >= span.min && number <= span.max,
+        outOfRangeBound: 0,
+    }
+}
+
+/**
  * Best global transposition for selected MIDI tracks — the automation the Python lyre player calls
  * find_best_shift, which we had no equivalent of (offset is typed in by hand, and the only
  * feedback is a counter the user minimizes by trial and error).
@@ -269,6 +301,11 @@ export type MidiImportTrack = {
     localOffset: number | null
     /** Maximum number of octave moves the best-effort fold may make. */
     maxScaling: number
+    /**
+     * The notes' `midi` values are final Note Numbers for this layer (mapped percussion), not file
+     * pitches: they are placed as they are, with no offset, fold or accidental snap.
+     */
+    direct?: boolean
 }
 
 /** One generated-roster layer — the identity that decides what a snapped nominal becomes. */
@@ -458,12 +495,14 @@ export function importMidiTracks(
         const pitch = pitchOf(track.layer)
         for (const midiNote of track.notes) {
             totalNotes++
-            const transformed = transformMidiNumber(midiNote.midi, {
-                instrumentName,
-                pitch,
-                localOffset: track.localOffset,
-                maxScaling: track.maxScaling,
-            }, offset)
+            const transformed = track.direct === true
+                ? directNumber(midiNote.midi, instrumentName, pitch)
+                : transformMidiNumber(midiNote.midi, {
+                    instrumentName,
+                    pitch,
+                    localOffset: track.localOffset,
+                    maxScaling: track.maxScaling,
+                }, offset)
             if (transformed.isAccidental) {
                 accidentals++
                 stats.accidentals++
