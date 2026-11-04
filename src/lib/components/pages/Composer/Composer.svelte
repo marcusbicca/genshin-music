@@ -13,6 +13,7 @@
 </script>
 
 <script lang="ts">
+  import { documentTitle } from '$lib/seo';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -30,6 +31,7 @@
   import ComposerCanvas from './ComposerCanvas.svelte';
   import ComposerMenu from './ComposerMenu.svelte';
   import { ComposerInstrumentSynchronizer } from './ComposerInstrumentSynchronizer';
+  import { InstrumentPickSession } from './instrumentPickSession';
   import CanvasTool from './CanvasTool.svelte';
   import InstrumentControls from './InstrumentControls.svelte';
   import IconUndo from '~icons/lucide/undo-2';
@@ -306,6 +308,18 @@
    * third is a third source here and nothing at all down there.
    */
   const overlayDismissesClicks = $derived(menuDismissesClicks || layerSettingsDismissesClicks);
+  /**
+   * THE LAYER PANEL'S INSTRUMENT PICKS, one audition per panel visit (instrumentPickSession.ts):
+   * each pick swaps from the instrument the run started on, replacing the previous pick's Step,
+   * so auditioning several instruments one after another cannot accumulate swaps.
+   * The visit is the run's outer bound, which is why it resets on every open/close report.
+   */
+  const instrumentPicks = new InstrumentPickSession();
+
+  function layerSettingsOpenChanged(open: boolean) {
+    layerSettingsDismissesClicks = open;
+    instrumentPicks.reset();
+  }
 
   let broadcastChannel: BroadcastChannel | null = null;
   let mounted = false;
@@ -921,7 +935,10 @@
     // ADR-0007: it is also where the two NOTE rewrites live — an instrument swap (button-preserving
     // through nominal correspondence) and a per-layer Basepoint override change (the interval).
     // Both ride the one Step setInstrument records, roster entry and rewritten notes together.
-    song.setInstrument(index, instrument);
+    //
+    // THROUGH THE PICK SESSION, which is setInstrument for every edit but a run of instrument picks:
+    // a pick that follows another one on this layer undoes it first and swaps from the original.
+    instrumentPicks.apply(song, index, instrument);
     //THE NOTE-EDIT FUNNEL, not a bare resync: everything the popup writes is part of the saved song
     //(name, Basepoint override, volume, mute, alias, icon, visibility), and a swap or an override
     //change rewrites the track's notes as well.
@@ -937,8 +954,8 @@
    * THE LAYER SETTINGS POPUP'S CONTINUOUS INPUTS (design §5), the second gesture on this surface
    * that spans time rather than one call: its volume slider and alias field emit one
    * `onInstrumentChange` per tick and every one of them is a whole `setInstrument` Step. One drag
-   * would land ~125 of them - past the cap, evicting the session's real edits and stranding the
-   * Savepoint - so the popup brackets the gesture and it collapses into one Step, the same way the
+   * would land ~125 of them - half the cap, so two drags evict the session's real edits and strand
+   * the Savepoint - so the popup brackets the gesture and it collapses into one Step, the same way the
    * Duration Hold's does.
    *
    * The depth check is the composer answering what the container cannot see, exactly as
@@ -2819,7 +2836,9 @@
 {/snippet}
 
 <PageMetadata
-  text={`${t('home:composer_name')} - ${song.name}`}
+  text={song.name !== 'Untitled'
+    ? documentTitle(`${song.name} - ${t('home:composer_name')}`)
+    : documentTitle(t('home:composer_title', { APP_NAME: game.display.name }))}
   description="Create or edit songs with the composer, using up to 52 layers, tempo changers, multiple instruments and pitches. You can also convert a MIDI, video or audio into a sheet."
 />
 {#if isMidiVisible}
@@ -2920,8 +2939,10 @@
       onMerge={mergeLayer}
       onEditGroupStart={beginInstrumentEditGroup}
       onEditGroupEnd={endInstrumentEditGroup}
+      songPitch={song.pitch}
+      songReverb={settings.reverb.value}
       {songLocked}
-      onSettingsOpenChange={(open) => (layerSettingsDismissesClicks = open)}
+      onSettingsOpenChange={layerSettingsOpenChanged}
     />
   </div>
   <div class="top-panel-composer" style="grid-area:b">

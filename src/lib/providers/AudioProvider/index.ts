@@ -1,10 +1,13 @@
 import { base } from '$app/paths';
 import AudioRecorder from '$lib/audio/AudioRecorder';
 import { Instrument } from '$lib/audio/Instrument.svelte';
+import { fadeMasterBus, MASTER_BUS_FADE_S, masterBusOf } from '$lib/audio/MasterBus';
 
 export type AppAudioNode = {
   node: AudioNode;
   to: AudioDestination | null;
+  /** Routes through the engine's optional panner while `node` keeps a stable identity. */
+  instrument?: Instrument;
 };
 type AudioDestination = 'reverb' | 'end';
 
@@ -82,6 +85,12 @@ const DEFAULT_TIMINGS: AudioRecoveryTimings = {
  */
 const REBUILD_COOLDOWN_MS = 30_000;
 
+/**
+ * Most output latency a renderer restart waits out before stopping the renderer, in s. Bluetooth
+ * routes report a few hundred ms; this only guards against a reading far past that.
+ */
+const MAX_FADE_LATENCY_S = 0.3;
+
 /** Gestures that re-arm a recovery attempt - see AudioProviderClass.armGestureRecovery. */
 const GESTURE_EVENTS = ['pointerdown', 'touchend', 'keydown'] as const;
 
@@ -107,6 +116,24 @@ function withTimeout<T>(promise: Promise<T>, ms: number, call: string): Promise<
     timer = setTimeout(() => reject(new AudioContextTimeoutError(call)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Whether this is the engine WebKit 276687 lives in - see AudioProviderClass.rendererCycleDue.
+ *
+ * `navigator.vendor` is not a free-form UA string: an engine reports one of three fixed values,
+ * and "Apple Computer, Inc." is WebKit's. That covers Safari and every browser on iOS, which are
+ * all WebKit underneath; Chromium reports "Google Inc." and Gecko an empty string.
+ */
+function isWebKit(): boolean {
+  return typeof navigator !== 'undefined' && navigator.vendor === 'Apple Computer, Inc.';
+}
+
+/** Wall time until a fade out scheduled now has reached the speakers, in ms. */
+function fadeHeardAfterMs(context: AudioContext): number {
+  // Not every engine reports outputLatency; baseLatency is the part of it they all know.
+  const latency = context.outputLatency || context.baseLatency || 0;
+  return (MASTER_BUS_FADE_S + Math.min(latency, MAX_FADE_LATENCY_S)) * 1000;
 }
 
 /** `context.state` widened to admit WebKit's `interrupted`, which the DOM types omit. */
@@ -162,11 +189,11 @@ export class AudioProviderClass {
    * bug report notes it does not occur when the context WAS suspended and resumed across the
    * background transition, which is exactly what this forces on the way back.
    *
-   * The cost is a renderer stop/start on every return to the foreground, which is a brief gap if
-   * audio happens to be playing at that moment. That is the whole trade: an occasional hiccup on
-   * tab-return against audio that is silently dead until the app is restarted. Not narrowed to
-   * WebKit, because "output is silently broken" has no feature test and sniffing the UA would be
-   * a worse guess than paying the cost everywhere.
+   * The cost is a renderer stop/start on every return to the foreground, which is a short dip if
+   * audio happens to be playing at that moment (restartRenderer fades around it; unfaded it was a
+   * click). Worth paying against audio that stays silently dead until the app is restarted, but
+   * only where that can happen: armed on WebKit only, since every other engine would pay the dip
+   * on every tab switch for nothing.
    */
   private rendererCycleDue = false;
   /** Wall-clock time of the last rebuild, for REBUILD_COOLDOWN_MS. */
@@ -209,7 +236,7 @@ export class AudioProviderClass {
         gainNode.gain.value = 2.5;
         convolver.buffer = impulseResponse;
         convolver.connect(gainNode);
-        gainNode.connect(context.destination);
+        gainNode.connect(masterBusOf(context).input);
         this.reverbNode = convolver;
         this.reverbVolumeNode = gainNode;
       })
@@ -420,7 +447,7 @@ export class AudioProviderClass {
       // Fires on the way out too, and a hidden page is the one moment recovery must not run -
       // but it IS the moment to remember that a background transition happened at all.
       if (document.visibilityState !== 'visible') {
-        this.rendererCycleDue = true;
+        this.rendererCycleDue = isWebKit();
         return;
       }
       // Set BEFORE recovering, so the probe in ensureRunning runs on this pass: coming back
@@ -440,7 +467,7 @@ export class AudioProviderClass {
       // arms the cycle; treating first load as a restore makes the first iOS gesture pay an
       // unnecessary resume -> suspend -> resume sequence.
       if (!event.persisted) return;
-      this.rendererCycleDue = true;
+      this.rendererCycleDue = isWebKit();
       onForeground();
     };
     document.addEventListener('visibilitychange', onForeground);
@@ -552,15 +579,26 @@ export class AudioProviderClass {
    * pair completed and left the context running. Most callers can still judge the result by the
    * clock; the post-background renderer-cycle path cannot, because its failure mode has a live
    * clock and silent output, so it must retain this explicit success signal.
+   *
+   * Faded, because the pair runs while music may be playing: suspend() stops the output
+   * mid-waveform and resume() starts it again the same way, and each is a click.
    */
   private restartRenderer = async (context: AudioContext): Promise<boolean> => {
+    const rendering = stateOf(context) === 'running';
+    const faded = fadeMasterBus(context, 'out');
     try {
+      // Only a running renderer plays the fade out, and the speakers get it a latency later.
+      if (faded && rendering) await sleep(fadeHeardAfterMs(context));
       await withTimeout(context.suspend(), this.timings.callTimeoutMs, 'suspend');
       await withTimeout(context.resume(), this.timings.callTimeoutMs, 'resume');
       return stateOf(context) === 'running';
     } catch (error) {
       console.warn('Audio renderer restart failed', error);
       return false;
+    } finally {
+      // Whatever happened, so a pair that failed halfway cannot leave the app muted. On a context
+      // left suspended the fade in is still scheduled, and plays once something resumes it.
+      if (faded) fadeMasterBus(context, 'in');
     }
   };
 
@@ -661,7 +699,7 @@ export class AudioProviderClass {
       }
     });
     for (const { instrument } of routing) instrument.detachFromContext();
-    this.nodes.forEach((entry) => entry.node.disconnect());
+    this.nodes.forEach((entry) => (entry.instrument ?? entry.node).disconnect());
     this.nodes = [];
     this.reverbNode = null;
     this.reverbVolumeNode = null;
@@ -746,6 +784,7 @@ export class AudioProviderClass {
     this.nodes.push({
       node,
       to: reverbOverride === null ? null : reverbOverride ? 'reverb' : 'end',
+      instrument: Instrument.liveInstruments().find((instrument) => instrument.endNode === node),
     });
     this.setAudioDestinations();
     return this;
@@ -758,7 +797,7 @@ export class AudioProviderClass {
     this.disposeContextState = null;
     this.observedContext = null;
     this.disarmGesture?.();
-    this.nodes.forEach((node) => node.node.disconnect());
+    this.nodes.forEach((node) => (node.instrument ?? node.node).disconnect());
     this.nodes = [];
     this.recorder = null;
     this.reverbNode = null;
@@ -766,15 +805,16 @@ export class AudioProviderClass {
   };
 
   clear = () => {
-    this.nodes.forEach((node) => node.node.disconnect());
+    this.nodes.forEach((node) => (node.instrument ?? node.node).disconnect());
     this.nodes = [];
     return this;
   };
 
   disconnect = (node: AudioNode | null) => {
     if (!node) return this;
+    const entry = this.nodes.find((entry) => entry.node === node);
+    (entry?.instrument ?? node).disconnect();
     this.nodes = this.nodes.filter((n) => n.node !== node);
-    node.disconnect();
     return this;
   };
 
@@ -792,34 +832,28 @@ export class AudioProviderClass {
   };
 
   startRecording = () => {
-    const { recorder, nodes, reverbVolumeNode } = this;
-    if (!recorder || !recorder.node) return;
-    if (reverbVolumeNode) reverbVolumeNode.connect(recorder.node);
-    for (const node of nodes) {
-      const dest = node.to ?? this.defaultDestination;
-      if (dest === 'end') {
-        node.node.connect(recorder.node);
-      }
-    }
+    const { recorder, audioContext } = this;
+    if (!recorder || !recorder.node || !audioContext) return;
+    // One tap on the master bus output: what the speakers get, limiter included. The metronome
+    // joins the destination past the bus, which is what keeps it out of recordings.
+    masterBusOf(audioContext).output.connect(recorder.node);
     this.isRecording = true;
     recorder.start();
     return this;
   };
 
   stopRecording = async () => {
-    const { recorder, reverbVolumeNode, audioContext } = this;
+    const { recorder, audioContext } = this;
     if (!recorder) return;
     const recording = await recorder.stop();
-    // A rebuild can replace all three while MediaRecorder is asynchronously delivering its final
-    // dataavailable event. The captured blob is still valid, but reconnecting an old reverb node
-    // to the new context would throw a cross-context InvalidAccessError.
+    // A rebuild can replace both while MediaRecorder is asynchronously delivering its final
+    // dataavailable event. The captured blob is still valid, and the tap went with the old
+    // context's bus.
     if (this.recorder !== recorder || this.audioContext !== audioContext) return recording;
-    if (reverbVolumeNode && audioContext) {
-      reverbVolumeNode.disconnect();
-      reverbVolumeNode.connect(audioContext.destination);
+    if (this.isRecording && recorder.node && audioContext) {
+      masterBusOf(audioContext).output.disconnect(recorder.node);
     }
     this.isRecording = false;
-    this.setAudioDestinations();
     return recording;
   };
   now = () => {
@@ -836,17 +870,18 @@ export class AudioProviderClass {
   };
 
   setNodeDestination(node: AppAudioNode) {
-    node.node.disconnect();
+    const source = node.instrument ?? node.node;
+    source.disconnect();
     const dest = node.to ?? this.defaultDestination;
     if (dest === 'reverb') {
       if (!this.reverbNode) {
         console.warn("Couldn't connect to reverb");
-        if (this.audioContext) node.node.connect(this.audioContext.destination);
+        if (this.audioContext) source.connect(masterBusOf(this.audioContext).input);
       } else {
-        node.node.connect(this.reverbNode);
+        source.connect(this.reverbNode);
       }
     } else {
-      if (this.audioContext) node.node.connect(this.audioContext.destination);
+      if (this.audioContext) source.connect(masterBusOf(this.audioContext).input);
     }
   }
 }

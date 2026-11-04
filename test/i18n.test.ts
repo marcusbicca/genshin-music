@@ -41,17 +41,24 @@ describe('interpolation hands values through unescaped, and Svelte is what escap
      * a per-surface test would not.
      */
     /**
-     * ALLOWLISTED, and the bar for adding to this list is high: the value must be machine
-     * generated and escaped at the point of interpolation, never a translated or
-     * user-supplied string.
+     * ALLOWLISTED, and the bar for adding to this list is high: the value must be
+     * serialized and escaped at the point of interpolation, never raw translated or
+     * user-supplied markup.
      *
      * HomePage.svelte emits the page's schema.org JSON-LD, which has to be a real <script>
      * element - <svelte:element this="script"> renders nothing in Svelte, and a literal
      * <script> in a component is taken as its instance script, so {@html} is the only way.
-     * Its payload comes from game.json via seo.ts's serializeJsonLd, which escapes < > and
-     * & so nothing interpolated can close the tag.
+     * Its app metadata and translated description pass through seo.ts's serializeJsonLd,
+     * which escapes < > and & so the description cannot close the tag. The blog's JSON-LD
+     * follows the same pattern.
      */
-    const HTML_ALLOWED = new Set(['src/lib/components/shell/HomePage.svelte'])
+    const HTML_ALLOWED = new Set([
+        'src/lib/components/shell/HomePage.svelte',
+        // Blog post and blog index JSON-LD: payloads built from post metadata and fixed paths,
+        // never from t(), and escaped by jsonLdScriptTag like the homepage's.
+        'src/lib/components/blog/BaseBlogPost.svelte',
+        'src/routes/blog/+page.svelte',
+    ])
 
     it('no component renders anything with {@html}', () => {
         const offenders: string[] = []
@@ -71,7 +78,7 @@ describe('interpolation hands values through unescaped, and Svelte is what escap
         expect(offenders).toEqual([])
     })
 
-    it('no allowlisted {@html} interpolates a translated string', () => {
+    it('no allowlisted {@html} interpolates t() directly', () => {
         for (const path of HTML_ALLOWED) {
             const source = readFileSync(path, 'utf8')
             for (const [, expression] of source.matchAll(/\{@html ([\s\S]*?)\}\n/g)) {
