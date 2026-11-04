@@ -763,7 +763,17 @@
     "merge_below": "Abaixo",
     "delete_layer": "Excluir camada",
     "variant": "Variante",
-    "only_for": "Apenas {{instrument}}"
+    "only_for": "Apenas {{instrument}}",
+    "auto_name": "Nome automático",
+    "auto_name_description": "Nomeia a camada pelo instrumento, número e escala, atualizando a cada mudança",
+    "swap_whole_group": "Trocar todo o {{name}} ({{n}} camadas)",
+    "volume_down": "Diminuir volume em 1%",
+    "volume_up": "Aumentar volume em 1%",
+    "volume_applies_to": "Aplicar a",
+    "volume_scope_layer": "Esta camada",
+    "volume_scope_instrument": "Todos os {{name}}",
+    "volume_scope_group": "{{name}} (com suas camadas de escala)",
+    "volume_scope_count": "Altera {{n}} camadas"
   },
   "tutorials": {
     "composer": {

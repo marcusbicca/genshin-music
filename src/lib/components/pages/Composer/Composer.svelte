@@ -951,6 +951,26 @@
   }
 
   /**
+   * One popup edit over SEVERAL layers - a volume applied to every layer of an instrument or of a
+   * group - as one Undo Step: each layer goes through the same funnel a single edit does, inside one
+   * history group (reentrant, so a slider drag that already opened one just nests).
+   */
+  function editInstruments(indices: number[], change: (layer: InstrumentData) => InstrumentData) {
+    if (songLocked) return;
+    history.beginGroup();
+    try {
+      for (const index of indices) {
+        const current = song.instruments[index];
+        if (current) instrumentPicks.apply(song, index, change(current));
+      }
+    } finally {
+      if (history.groupDepth > 0) history.endGroup();
+    }
+    handleAutoSave();
+    syncInstruments(song);
+  }
+
+  /**
    * THE LAYER SETTINGS POPUP'S CONTINUOUS INPUTS (design §5), the second gesture on this surface
    * that spans time rather than one call: its volume slider and alias field emit one
    * `onInstrumentChange` per tick and every one of them is a whole `setInstrument` Step. One drag
@@ -2934,6 +2954,7 @@
       onLayerSelect={changeLayer}
       onInstrumentAdd={addInstrument}
       onInstrumentChange={editInstrument}
+      onInstrumentsChange={editInstruments}
       onInstrumentDelete={removeInstrument}
       onChangePosition={switchLayerPosition}
       onMerge={mergeLayer}

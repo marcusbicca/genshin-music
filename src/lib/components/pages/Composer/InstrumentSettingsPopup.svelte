@@ -30,6 +30,16 @@
   });
   let sectionsSeeded = false;
 
+  /**
+   * WHICH LAYERS A VOLUME EDIT REACHES, kept for the whole visit like the sections: balancing a
+   * section of the orchestra is a run of edits on one group, not a choice made per edit.
+   */
+  let volumeScope = $state<'layer' | 'instrument' | 'group'>('layer');
+  //remembered between openings, like the volume scope: swap the layer's scale layers with it
+  let swapWholeGroup = $state(false);
+  const VOLUME_PRESETS = [0, 25, 50, 75, 100];
+  const VOLUME_MAX = 125;
+
   function seedSections() {
     if (sectionsSeeded) return;
     sectionsSeeded = true;
@@ -50,8 +60,11 @@
   import { clickOutside } from '$lib/utils/clickOutside';
   import AppButton from '$cmp/inputs/AppButton.svelte';
   import PitchSelect from '$cmp/inputs/PitchSelect.svelte';
+  import type { InstrumentName } from '$core/types';
   import InstrumentSelect from '$cmp/inputs/InstrumentSelect.svelte';
   import Select from '$cmp/inputs/Select.svelte';
+  import Switch from '$cmp/inputs/Switch.svelte';
+  import { layerGroups, autoLayerName, layersInScope } from '$core/Songs/layerNames';
   import HelpTooltip from '$cmp/utility/HelpTooltip.svelte';
   import DecoratedCard from '$cmp/layout/DecoratedCard.svelte';
   import IconPen from '~icons/fa6-solid/pen';
@@ -64,10 +77,13 @@
   import IconArrowsUpToLine from '~icons/fa6-solid/arrows-up-to-line';
   import IconArrowsDownToLine from '~icons/fa6-solid/arrows-down-to-line';
   import IconTrash from '~icons/fa6-solid/trash';
+  import IconMinus from '~icons/fa6-solid/minus';
+  import IconPlus from '~icons/fa6-solid/plus';
 
   let {
     instrument,
     onChange,
+    onChangeMany,
     onDelete,
     onClose,
     onChangePosition,
@@ -88,6 +104,11 @@
     /** The song's own reverb, named on the option that follows it. */
     songReverb: boolean;
     onChange: (instrument: InstrumentData) => void;
+    /**
+     * One edit over several layers (a volume applied to every layer of an instrument or group),
+     * landing as ONE Undo Step. `change` describes each layer's new entry from its current one.
+     */
+    onChangeMany?: (indices: number[], change: (layer: InstrumentData) => InstrumentData) => void;
     onChangePosition: (direction: 1 | -1) => void;
     onMerge: (direction: 1 | -1) => void;
     onDelete: () => void;
@@ -192,6 +213,46 @@
    * left able to see what moved.
    */
   const edited = (changes: Partial<InstrumentData>) => instrument.clone().set(changes);
+
+  const groups = $derived(layerGroups(instruments, songPitch));
+  const autoName = $derived(
+    groups[currentLayer]
+      ? autoLayerName(groups[currentLayer], songPitch, (name) => tInstrument(name))
+      : ''
+  );
+  /** The layers a volume edit reaches with the current scope (always includes this one). */
+  const volumeTargets = $derived(layersInScope(instruments, currentLayer, volumeScope, songPitch));
+  const groupLabel = $derived(
+    groups[currentLayer]
+      ? autoLayerName({ ...groups[currentLayer], pitch: songPitch }, songPitch, (name) =>
+          tInstrument(name)
+        )
+      : ''
+  );
+
+  /** This layer and the scale layers made to cover its missing keys ("Violin 2", "Violin 2 (Eb)"). */
+  const groupTargets = $derived(layersInScope(instruments, currentLayer, 'group', songPitch));
+
+  function changeInstrument(name: InstrumentName) {
+    if (!swapWholeGroup || groupTargets.length <= 1 || !onChangeMany) {
+      return onChange(instrument.withInstrument(name));
+    }
+    onChangeMany(groupTargets, (layer) => layer.withInstrument(name));
+  }
+
+  const clampVolume = (value: number) => Math.max(0, Math.min(VOLUME_MAX, Math.round(value)));
+
+  /**
+   * Set or nudge the volume of every layer in scope. `absolute` sets them all to one value; a
+   * relative nudge moves each layer from its OWN volume, so a balanced section stays balanced.
+   */
+  function changeVolume(value: number, relative = false) {
+    const next = (layer: InstrumentData) => clampVolume(relative ? layer.volume + value : value);
+    if (volumeTargets.length <= 1 || !onChangeMany) {
+      return onChange(edited({ volume: next(instrument) }));
+    }
+    onChangeMany(volumeTargets, (layer) => layer.clone().set({ volume: next(layer) }));
+  }
   const panPercent = $derived(Math.round((instrument?.pan ?? 0) * 100));
   const panText = $derived(
     panPercent === 0
@@ -239,12 +300,12 @@
             type="text"
             maxlength="50"
             aria-label={t('instrument_settings:layer_name')}
-            value={instrument.alias}
+            value={instrument.autoName ? autoName : instrument.alias}
             {disabled}
             onfocus={startAliasGroup}
             onblur={endAliasGroup}
-            oninput={(e) => onChange(edited({ alias: e.currentTarget.value }))}
-            placeholder={tInstrument(instrument.name)}
+            oninput={(e) => onChange(edited({ alias: e.currentTarget.value, autoName: false }))}
+            placeholder={autoName}
           />
           <IconPen aria-hidden="true" />
         </label>
@@ -261,9 +322,20 @@
                   style="width:var(--settings-control-width)"
                   selected={instrument.name}
                   {disabled}
-                  onChange={(name) => onChange(instrument.withInstrument(name))}
+                  onChange={changeInstrument}
                 />
               </label>
+              {#if groupTargets.length > 1}
+                <div class="settings-row">
+                  <span>
+                    {t('instrument_settings:swap_whole_group', {
+                      name: groupLabel,
+                      n: groupTargets.length,
+                    })}
+                  </span>
+                  <Switch checked={swapWholeGroup} onchange={(on) => (swapWholeGroup = on)} />
+                </div>
+              {/if}
               <label class="settings-row">
                 <span>{t('common:pitch')}</span>
                 <PitchSelect
@@ -362,9 +434,64 @@
                   onkeydown={startVolumeGroup}
                   onkeyup={endVolumeGroup}
                   onblur={endVolumeGroup}
-                  oninput={(e) => onChange(edited({ volume: Number(e.currentTarget.value) }))}
+                  oninput={(e) => changeVolume(Number(e.currentTarget.value))}
                 />
               </div>
+              <div class="settings-volume-steps">
+                <AppButton
+                  class="settings-volume-step flex-centered"
+                  ariaLabel={t('instrument_settings:volume_down')}
+                  tooltip={t('instrument_settings:volume_down')}
+                  disabled={disabled || instrument.volume <= 0}
+                  onclick={() => changeVolume(-1, true)}
+                >
+                  <IconMinus />
+                </AppButton>
+                {#each VOLUME_PRESETS as preset (preset)}
+                  <AppButton
+                    class="settings-volume-preset"
+                    toggled={instrument.volume === preset}
+                    {disabled}
+                    onclick={() => changeVolume(preset)}
+                  >
+                    {preset}%
+                  </AppButton>
+                {/each}
+                <AppButton
+                  class="settings-volume-step flex-centered"
+                  ariaLabel={t('instrument_settings:volume_up')}
+                  tooltip={t('instrument_settings:volume_up')}
+                  disabled={disabled || instrument.volume >= VOLUME_MAX}
+                  onclick={() => changeVolume(1, true)}
+                >
+                  <IconPlus />
+                </AppButton>
+              </div>
+              <label class="settings-row">
+                <span>{t('instrument_settings:volume_applies_to')}</span>
+                <Select
+                  style="padding:0.3rem;width:var(--settings-control-width)"
+                  value={volumeScope}
+                  {disabled}
+                  onchange={(e) =>
+                    (volumeScope = e.currentTarget.value as 'layer' | 'instrument' | 'group')}
+                >
+                  <option value="layer">{t('instrument_settings:volume_scope_layer')}</option>
+                  <option value="instrument">
+                    {t('instrument_settings:volume_scope_instrument', {
+                      name: tInstrument(instrument.name),
+                    })}
+                  </option>
+                  <option value="group">
+                    {t('instrument_settings:volume_scope_group', { name: groupLabel })}
+                  </option>
+                </Select>
+              </label>
+              {#if volumeTargets.length > 1}
+                <div class="settings-volume-note">
+                  {t('instrument_settings:volume_scope_count', { n: volumeTargets.length })}
+                </div>
+              {/if}
               <div class="settings-row">
                 <label for="instrument-pan">{t('instrument_settings:pan')}</label>
                 <span>{panText}</span>
@@ -406,6 +533,24 @@
           {@render sectionHeader('display', t('instrument_settings:section_display'))}
           {#if openSections.display}
             <div class="settings-section-content" transition:slide={sectionSlide()}>
+              <div class="settings-row">
+                <div class="row items-center" style="gap:0.4rem">
+                  {t('instrument_settings:auto_name')}
+                  <HelpTooltip buttonStyle="width:1.1rem;height:1.1rem" width={12}>
+                    {t('instrument_settings:auto_name_description')}
+                  </HelpTooltip>
+                </div>
+                <Switch
+                  checked={instrument.autoName}
+                  onchange={(on) => {
+                    if (disabled) return;
+                    //turning it off keeps the name it showed, so nothing visibly changes
+                    onChange(
+                      edited(on ? { autoName: true } : { autoName: false, alias: autoName })
+                    );
+                  }}
+                />
+              </div>
               <label class="settings-row">
                 <span>{t('instrument_settings:note_icon')}</span>
                 <Select
@@ -661,6 +806,33 @@
     display: flex;
     align-items: center;
     gap: 0.6rem;
+  }
+
+  .settings-volume-steps {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .floating-instrument-settings :global(.settings-volume-step) {
+    min-width: unset;
+    width: 1.8rem;
+    height: 1.8rem;
+    padding: 0;
+    flex-shrink: 0;
+    border-radius: 2rem;
+  }
+
+  .floating-instrument-settings :global(.settings-volume-preset) {
+    flex: 1;
+    min-width: 0;
+    padding: 0.3rem 0;
+    font-size: 0.75rem;
+  }
+
+  .settings-volume-note {
+    font-size: 0.8rem;
+    opacity: 0.75;
   }
 
   .settings-pan input {

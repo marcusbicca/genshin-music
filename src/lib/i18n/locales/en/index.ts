@@ -995,6 +995,19 @@ export const i18n_en = {
     variant: 'Variant',
     // caption over the settings only one instrument has, e.g. "Aurora only"
     only_for: '{{instrument}} only',
+    // the layer is named from its instrument, its number and its scale ("Violin 2 (Eb)")
+    auto_name: 'Automatic name',
+    auto_name_description: 'Name the layer from its instrument, number and scale, updated on every change',
+    // a switch under the instrument picker: swap this layer and its scale layers together
+    swap_whole_group: 'Swap all of {{name}} ({{n}} layers)',
+    volume_down: 'Lower volume by 1%',
+    volume_up: 'Raise volume by 1%',
+    // "Apply to: This layer | Every Violin | Violin 2"
+    volume_applies_to: 'Apply to',
+    volume_scope_layer: 'This layer',
+    volume_scope_instrument: 'Every {{name}}',
+    volume_scope_group: '{{name}} (with its scale layers)',
+    volume_scope_count: 'Changes {{n}} layers',
   },
 
   tutorials: {

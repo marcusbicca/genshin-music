@@ -5,6 +5,7 @@
   import { t, tInstrument } from '$i18n/binding.svelte';
   import AppButton from '$cmp/inputs/AppButton.svelte';
   import InstrumentSettingsPopup from './InstrumentSettingsPopup.svelte';
+  import { layerLabels } from '$core/Songs/layerNames';
 
   let {
     instruments,
@@ -12,6 +13,7 @@
     usedLayers,
     onLayerSelect,
     onInstrumentChange,
+    onInstrumentsChange,
     onInstrumentDelete,
     onInstrumentAdd,
     onChangePosition,
@@ -32,6 +34,11 @@
     usedLayers: ReadonlySet<number>;
     onLayerSelect: (index: number) => void;
     onInstrumentChange: (instrument: InstrumentData, index: number) => void;
+    /** One edit over several layers, recorded as one Undo Step (the popup's group volume). */
+    onInstrumentsChange?: (
+      indices: number[],
+      change: (layer: InstrumentData) => InstrumentData
+    ) => void;
     onInstrumentDelete: (index: number) => void;
     onInstrumentAdd: () => void;
     onChangePosition: (direction: 1 | -1) => void;
@@ -53,6 +60,9 @@
   } = $props();
 
   let isEditing = $state(false);
+
+  //automatic names follow instrument, number and scale (layerNames.ts); typed aliases stay as typed
+  const labels = $derived(layerLabels(instruments, songPitch, (name) => tInstrument(name)));
 
   //REPORTED FROM THE STATE ITSELF and not from the writes that move it: the popup is opened by the
   //row's settings button and closed from four places (the close button, click-outside, and the
@@ -93,6 +103,7 @@
     {songPitch}
     {songReverb}
     onChange={(ins) => onInstrumentChange(ins, selected)}
+    onChangeMany={onInstrumentsChange}
     onDelete={() => {
       onInstrumentDelete(selected);
       setNotEditing();
@@ -222,7 +233,7 @@
         class="flex-grow flex-centered instrument-name-button"
       >
         <span class="text-ellipsis" style="width:6rem">
-          {ins.alias || tInstrument(ins.name)}
+          {labels[i]}
         </span>
       </AppButton>
 

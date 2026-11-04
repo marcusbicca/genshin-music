@@ -550,11 +550,27 @@
         ? track.instrument.clone()
         : track.instrument.withInstrument(name);
     const label = track.instrument.alias || track.name;
+    //an auto-named track's extra layers are auto-named too: layerNames.ts numbers a layer that
+    //follows its track at another scale as part of it ("Violin 2", "Violin 2 (Eb)")
+    if (track.instrument.autoName) {
+      return base.set({
+        pitch:
+          layerPitch === mainPitch
+            ? track.instrument.pitch
+            : layerPitch === pitch
+              ? ''
+              : layerPitch,
+        alias: '',
+        autoName: true,
+        extensionLayer: true,
+      });
+    }
     return base.set({
       //same scale as the main layer: follow whatever the main layer follows (the song's or its own)
       pitch:
         layerPitch === mainPitch ? track.instrument.pitch : layerPitch === pitch ? '' : layerPitch,
       alias: `${label} (${name === track.instrument.name ? layerPitch : name})`,
+      extensionLayer: true,
     });
   }
 

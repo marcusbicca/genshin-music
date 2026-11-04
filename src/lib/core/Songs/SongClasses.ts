@@ -174,6 +174,17 @@ export interface SerializedInstrumentData {
     solo: boolean
     reverbOverride: boolean | null
     /**
+     * The layer is labelled from its instrument, number and scale (layerNames.ts) instead of
+     * `alias`. Written only when on, so files that never used it serialize byte-identically.
+     */
+    autoName?: boolean
+    /**
+     * The layer holds the notes the layer above it could not play (another scale, or a range
+     * extension such as WinterPiano) and belongs to that layer's group (layerNames.ts). Written
+     * only when on.
+     */
+    extensionLayer?: boolean
+    /**
      * Instrument Settings (ADR-0018), written only for an instrument that declares any - and then
      * every declared value, defaults included. Absent for every other instrument, which is why
      * files that never used settings serialize byte-identically to before.
@@ -200,6 +211,10 @@ export class InstrumentData {
     alias = ''
     muted = false
     solo = false
+    /** Label the layer from its instrument, number and scale (layerNames.ts) instead of `alias`. */
+    autoName = false
+    /** Holds the notes the layer above could not play; part of that layer's group (layerNames.ts). */
+    extensionLayer = false
     /**
      * Instrument Settings by setting id (ADR-0018). In memory a missing id means "the declared
      * default" - every read goes through resolveInstrumentSettings. Always this instance's own
@@ -228,6 +243,8 @@ export class InstrumentData {
         }
         const pan = normalizePan(this.pan)
         if (pan !== 0) serialized.pan = pan
+        if (this.autoName) serialized.autoName = true
+        if (this.extensionLayer) serialized.extensionLayer = true
         //every declared value, defaults included (ADR-0018): a song records what it sounded like,
         //so changing an instrument's declared default later re-voices no saved song. The key is
         //left out entirely - not written as undefined - for an instrument that declares nothing
@@ -261,6 +278,9 @@ export class InstrumentData {
             //an older app reading a file that has it ignores it and plays every unmuted track
             solo: source.solo ?? false,
             reverbOverride: source.reverbOverride ?? null,
+            //no version bump: an older app ignores the field and shows the stored alias
+            autoName: source.autoName === true,
+            extensionLayer: source.extensionLayer === true,
             //checked against what `name` declares in the running game: unknown ids and invalid values
             //drop out, which is how they fall back to the default. No version bump either: a file
             //without the field (every song saved before settings existed) plays the defaults

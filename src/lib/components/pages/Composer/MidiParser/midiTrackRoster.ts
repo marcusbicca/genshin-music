@@ -105,6 +105,9 @@ export function buildMidiTrackRoster(
             ),
             alias: parsedName.alias,
             pitch: parsedName.pitch,
+            //a track with no name of its own is labelled from its instrument, number and scale
+            //("Violin 2", "Piano (Eb)") instead of a generic "Track n.N"
+            autoName: !parsedName.alias,
           });
 
       return {

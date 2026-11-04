@@ -763,7 +763,17 @@
     "merge_below": "Below",
     "delete_layer": "Delete layer",
     "variant": "Variant",
-    "only_for": "{{instrument}} only"
+    "only_for": "{{instrument}} only",
+    "auto_name": "Automatic name",
+    "auto_name_description": "Name the layer from its instrument, number and scale, updated on every change",
+    "swap_whole_group": "Swap all of {{name}} ({{n}} layers)",
+    "volume_down": "Lower volume by 1%",
+    "volume_up": "Raise volume by 1%",
+    "volume_applies_to": "Apply to",
+    "volume_scope_layer": "This layer",
+    "volume_scope_instrument": "Every {{name}}",
+    "volume_scope_group": "{{name}} (with its scale layers)",
+    "volume_scope_count": "Changes {{n}} layers"
   },
   "tutorials": {
     "composer": {
