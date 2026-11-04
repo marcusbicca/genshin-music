@@ -42,7 +42,9 @@ describe('MIDI import panel policies', () => {
   });
 
   it('suggests one offset from track-specific identities and Basepoints', () => {
-    expect(midiParser).toContain('selected.map((track) => ({');
+    // mapped drum tracks are filtered out first: they ignore every offset
+    expect(midiParser).toContain('.filter((track) => !isMappedPercussion(track))');
+    expect(midiParser).toContain('.map((track) => ({');
     expect(midiParser).toContain('instrumentName: track.instrument.name');
     expect(midiParser).toContain('pitch: effectiveTrackPitch(track.instrument, pitch)');
     expect(midiParser).toContain('localOffset: track.localOffset');
@@ -61,7 +63,8 @@ describe('MIDI import panel accounting', () => {
 
   it('tracks the total separately from its directional split and clears every row first', () => {
     expect(midiParser).toContain('track.outOfRange = 0;');
-    expect(midiParser).toContain('track.outOfRange = stats.outOfRange;');
+    // a track's main and auxiliary layers all report into the same row, so the row sums them
+    expect(midiParser).toContain('track.outOfRange += stats.outOfRange;');
     expect(trackInfo).toContain('outOfRange={data.outOfRange}');
     expect(trackInfo).not.toContain(
       'outOfRange={data.outOfRangeBounds.upper + data.outOfRangeBounds.lower}'

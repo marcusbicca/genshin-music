@@ -171,6 +171,45 @@ export type InstrumentMetaJson = {
    * sounds exactly as it did before settings existed.
    */
   settings?: Record<string, InstrumentSettingMetaJson>;
+  /** How the MIDI importer may use this instrument. Absent = none of the extras below. */
+  midiImport?: MidiImportMetaJson;
+};
+
+/**
+ * MIDI-import hints an instrument declares about itself. Pure data, read by the importer only;
+ * a game gains these behaviours by authoring them here, never by the importer naming a game.
+ */
+export type MidiImportMetaJson = {
+  /**
+   * Instruments (of the same game) that continue this one's range: notes this instrument cannot
+   * reach may go to an extra layer of one of these, at the same scale, instead of changing octave.
+   * Sky's WinterPiano starts on Piano's 8th button, so it extends Piano upward.
+   */
+  rangeExtensions?: string[];
+  /**
+   * General MIDI percussion key (channel 10 note number, as a string) -> the button indices it
+   * hits on this instrument. A GM key absent from the map is not imported.
+   */
+  percussionMap?: Record<string, number[]>;
+  /**
+   * Same shape as percussionMap, used instead of it for an ISOLATED hit (no other hit of the same
+   * GM key within an eighth note): a fuller cluster for a lone accent, the plain map inside a roll.
+   */
+  percussionAccents?: Record<string, number[]>;
+};
+
+/**
+ * A game's own instrument-picking table for foreign MIDI tracks, tried in this order:
+ *  1. `trackNames` - the first entry whose `match` occurs in the track name (case-insensitive).
+ *     Ordered on purpose: "double bass" must be tried before "bass", "sax" before "alto".
+ *  2. `drumKit` - the instrument for a General MIDI drum track (channel 10).
+ *  3. `programs` - the entry whose `from`..`to` range holds the track's GM program (0-127).
+ * Anything none of them answers falls back to GM family matching (midiInstrumentSuggestion.ts).
+ */
+export type MidiInstrumentSuggestionsJson = {
+  trackNames?: { match: string; instrument: string }[];
+  drumKit?: string;
+  programs?: { from: number; to: number; instrument: string }[];
 };
 
 /**
@@ -193,6 +232,8 @@ export type GameJson = {
 
   meta: {
     title: string;
+    /** The home page <title>: the brand plus the game and what the app does, for search results. */
+    homeTitle: string;
     description: string;
     /**
      * The origin this game's pages want to be ranked as. Every build of a game — the
@@ -265,6 +306,8 @@ export type GameJson = {
      */
     bounds: { upper: number; lower: number };
     presets: MIDIPreset[];
+    /** How the importer picks an instrument for a foreign track. Absent = family matching only. */
+    instrumentSuggestions?: MidiInstrumentSuggestionsJson;
   };
 
   composer: {

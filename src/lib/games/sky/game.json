@@ -15,7 +15,8 @@
   },
   "meta": {
     "title": "Sky Music Nightly",
-    "description": "Sky music nightly, a website to play, practice and compose songs",
+    "homeTitle": "Sky Music Nightly - Play and compose Sky: Children of the Light songs",
+    "description": "Play instruments from Sky: Children of the Light in your browser. Learn songs, record your playing or compose your own music. Import MIDI files and export audio or sheets.",
     "canonicalOrigin": "https://sky-music.specy.app",
     "themeColor": "#63aea7",
     "analytics": {
@@ -112,7 +113,329 @@
         "name": "default",
         "notes": [60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83, 84]
       }
-    ]
+    ],
+    "instrumentSuggestions": {
+      "trackNames": [
+        {
+          "match": "double bass",
+          "instrument": "Contrabass"
+        },
+        {
+          "match": "contrabass",
+          "instrument": "Contrabass"
+        },
+        {
+          "match": "contrabaixo",
+          "instrument": "Contrabass"
+        },
+        {
+          "match": "basse",
+          "instrument": "Contrabass"
+        },
+        {
+          "match": "bass",
+          "instrument": "Contrabass"
+        },
+        {
+          "match": "baixo",
+          "instrument": "Contrabass"
+        },
+        {
+          "match": "cello",
+          "instrument": "Cello"
+        },
+        {
+          "match": "violon",
+          "instrument": "Violin"
+        },
+        {
+          "match": "violin",
+          "instrument": "Violin"
+        },
+        {
+          "match": "viola",
+          "instrument": "Violin"
+        },
+        {
+          "match": "violino",
+          "instrument": "Violin"
+        },
+        {
+          "match": "string",
+          "instrument": "Violin"
+        },
+        {
+          "match": "flute",
+          "instrument": "Flute"
+        },
+        {
+          "match": "flauta",
+          "instrument": "Flute"
+        },
+        {
+          "match": "fife",
+          "instrument": "Flute"
+        },
+        {
+          "match": "piccolo",
+          "instrument": "Flute"
+        },
+        {
+          "match": "oboe",
+          "instrument": "Flute"
+        },
+        {
+          "match": "clarinet",
+          "instrument": "Saxophone"
+        },
+        {
+          "match": "sax",
+          "instrument": "Saxophone"
+        },
+        {
+          "match": "trombone",
+          "instrument": "Horn"
+        },
+        {
+          "match": "tuba",
+          "instrument": "Horn"
+        },
+        {
+          "match": "horn",
+          "instrument": "Horn"
+        },
+        {
+          "match": "trompa",
+          "instrument": "Horn"
+        },
+        {
+          "match": "trumpet",
+          "instrument": "Trumpet"
+        },
+        {
+          "match": "trompete",
+          "instrument": "Trumpet"
+        },
+        {
+          "match": "lute",
+          "instrument": "Pipa"
+        },
+        {
+          "match": "guitar",
+          "instrument": "Pipa"
+        },
+        {
+          "match": "guitare",
+          "instrument": "Pipa"
+        },
+        {
+          "match": "violão",
+          "instrument": "Pipa"
+        },
+        {
+          "match": "harp",
+          "instrument": "Harp"
+        },
+        {
+          "match": "harpa",
+          "instrument": "Harp"
+        },
+        {
+          "match": "piano",
+          "instrument": "Piano"
+        },
+        {
+          "match": "ocarina",
+          "instrument": "Ocarina"
+        },
+        {
+          "match": "xylophone",
+          "instrument": "Xylophone"
+        },
+        {
+          "match": "bell",
+          "instrument": "Bells"
+        },
+        {
+          "match": "choir",
+          "instrument": "Aurora"
+        },
+        {
+          "match": "voice",
+          "instrument": "Aurora"
+        },
+        {
+          "match": "soprano",
+          "instrument": "Aurora"
+        },
+        {
+          "match": "alto",
+          "instrument": "Aurora"
+        },
+        {
+          "match": "tenor",
+          "instrument": "Aurora"
+        }
+      ],
+      "drumKit": "DunDun",
+      "programs": [
+        {
+          "from": 0,
+          "to": 7,
+          "instrument": "Piano"
+        },
+        {
+          "from": 8,
+          "to": 9,
+          "instrument": "Bells"
+        },
+        {
+          "from": 10,
+          "to": 10,
+          "instrument": "Kalimba"
+        },
+        {
+          "from": 11,
+          "to": 13,
+          "instrument": "Xylophone"
+        },
+        {
+          "from": 14,
+          "to": 14,
+          "instrument": "Bells"
+        },
+        {
+          "from": 15,
+          "to": 15,
+          "instrument": "Kalimba"
+        },
+        {
+          "from": 16,
+          "to": 23,
+          "instrument": "Harmonica"
+        },
+        {
+          "from": 24,
+          "to": 31,
+          "instrument": "Pipa"
+        },
+        {
+          "from": 32,
+          "to": 39,
+          "instrument": "Contrabass"
+        },
+        {
+          "from": 40,
+          "to": 41,
+          "instrument": "Violin"
+        },
+        {
+          "from": 42,
+          "to": 43,
+          "instrument": "Cello"
+        },
+        {
+          "from": 44,
+          "to": 45,
+          "instrument": "Violin"
+        },
+        {
+          "from": 46,
+          "to": 46,
+          "instrument": "Harp"
+        },
+        {
+          "from": 47,
+          "to": 47,
+          "instrument": "Contrabass"
+        },
+        {
+          "from": 48,
+          "to": 51,
+          "instrument": "Violin"
+        },
+        {
+          "from": 52,
+          "to": 55,
+          "instrument": "Aurora"
+        },
+        {
+          "from": 56,
+          "to": 56,
+          "instrument": "Trumpet"
+        },
+        {
+          "from": 57,
+          "to": 58,
+          "instrument": "Horn"
+        },
+        {
+          "from": 59,
+          "to": 59,
+          "instrument": "Trumpet"
+        },
+        {
+          "from": 60,
+          "to": 60,
+          "instrument": "Horn"
+        },
+        {
+          "from": 61,
+          "to": 63,
+          "instrument": "Trumpet"
+        },
+        {
+          "from": 64,
+          "to": 67,
+          "instrument": "Saxophone"
+        },
+        {
+          "from": 68,
+          "to": 73,
+          "instrument": "Flute"
+        },
+        {
+          "from": 74,
+          "to": 74,
+          "instrument": "TransverseFlute"
+        },
+        {
+          "from": 75,
+          "to": 75,
+          "instrument": "Panflute"
+        },
+        {
+          "from": 76,
+          "to": 79,
+          "instrument": "Ocarina"
+        },
+        {
+          "from": 80,
+          "to": 103,
+          "instrument": "Piano"
+        },
+        {
+          "from": 104,
+          "to": 107,
+          "instrument": "Pipa"
+        },
+        {
+          "from": 108,
+          "to": 111,
+          "instrument": "Kalimba"
+        },
+        {
+          "from": 112,
+          "to": 119,
+          "instrument": "DunDun"
+        },
+        {
+          "from": 120,
+          "to": 127,
+          "instrument": "Piano"
+        }
+      ]
+    }
   },
   "composer": {
     "tempoChangers": [

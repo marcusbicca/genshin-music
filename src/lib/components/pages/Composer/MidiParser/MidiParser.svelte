@@ -7,8 +7,25 @@
   import { logger } from '$stores/LoggerStore.svelte';
   import { ThemeProvider } from '$core/theme/ThemeProvider.svelte';
   import { ComposedSong } from '$core/Songs/ComposedSong.svelte';
-  import { importMidiTracks, suggestOffset, suggestTrackFit } from '$core/Songs/midiImport';
-  import { detectMidiSections, type MidiSection } from '$core/Songs/midiSections';
+  import {
+    importMidiTracks,
+    suggestOffset,
+    suggestTrackFit,
+    type MidiImportTrack,
+  } from '$core/Songs/midiImport';
+  import {
+    foldPhrases,
+    hasPercussionMap,
+    mapPercussionNotes,
+    planTrackLayers,
+    rangeExtensionsOf,
+  } from '$core/Songs/midiLayerPlan';
+  import {
+    detectMidiSections,
+    mergeSectionRange,
+    type MidiSection,
+  } from '$core/Songs/midiSections';
+  import type { InstrumentData } from '$core/Songs/SongClasses';
   import { PITCHES } from '$core/sharedConfig';
   import { effectiveTrackPitch } from '$core/Songs/noteIds';
   import { decodeMidiMetadata, type MidiMetadata } from '$core/Songs/midiMetadata';
@@ -67,11 +84,20 @@
   //medley support: the import range. -1 = the whole file
   let sections: MidiSection[] = $state([]);
   let sectionIndex = $state(-1);
+  //last section of the range (>= sectionIndex): joins sections the detection split apart
+  let sectionEndIndex = $state(-1);
+  const activeSection = $derived(
+    sectionIndex < 0 ? undefined : mergeSectionRange(sections, sectionIndex, sectionEndIndex)
+  );
   let fileKeyPitch: Pitch = 'C';
   let fileBpm = 220;
   let includeAccidentals = $state(true);
   let includeOutOfRange = $state(false);
   let keepAllDurations = $state(true);
+  //notes a track's main layer cannot play go to extra layers (other scale / range extension)
+  let auxiliaryLayers = $state(true);
+  //out-of-range passages move by whole octaves as phrases, never note by note
+  let phraseOctaves = $state(true);
   let warnedOfExperimental = false;
   // Parsing audio/video can outlive this import session by several seconds. A closed importer must
   // never install that stale result over the song after the lock has gone (or over a newer import).
@@ -214,7 +240,7 @@
 
   /** The notes of a track inside the selected section, re-timed so the section starts at 0. */
   function trackNotes(track: CustomTrack): { midi: number; time: number; duration: number }[] {
-    const section = sections[sectionIndex];
+    const section = activeSection;
     if (!section) return track.track.notes;
     return track.track.notes
       .filter((note) => note.time >= section.start - 1e-3 && note.time < section.end - 1e-3)
@@ -247,8 +273,12 @@
     for (const track of tracks) {
       const notes = trackNotes(track);
       if (notes.length === 0) continue;
+      //a mapped drum track is placed key by key; there is no scale or octave to fit
+      if (isMappedPercussion(track)) continue;
       const fit = suggestTrackFit(notes, track.instrument.name, pitch, track.maxScaling, PITCHES);
-      track.instrument = track.instrument.clone().set({ pitch: fit.pitch === pitch ? '' : fit.pitch });
+      track.instrument = track.instrument
+        .clone()
+        .set({ pitch: fit.pitch === pitch ? '' : fit.pitch });
       track.localOffset = fit.localOffset;
       if (track.selected) {
         stranded += fit.stranded;
@@ -277,8 +307,22 @@
     tracks.forEach((track, i) => (track.selected = order.includes(i)));
   }
 
+  /** A drum track whose instrument can take the kit key by key (meta.json percussionMap). */
+  function isMappedPercussion(track: CustomTrack) {
+    return track.percussion && hasPercussionMap(track.instrument.name);
+  }
+
+  function changeSectionEnd(value: number) {
+    sectionEndIndex = Math.max(value, sectionIndex);
+    if (tracks.length === 0) return;
+    selectTracksInSection();
+    if (importedMetadata) convertMidi();
+    else autoFitTracks(false);
+  }
+
   function changeSection(value: number) {
     sectionIndex = value;
+    sectionEndIndex = value;
     const section = sections[value];
     if (section) {
       bpm = Math.round(section.bpm * 4) || bpm;
@@ -306,6 +350,10 @@
       tracks = buildMidiTrackRoster(midi.tracks, importedMetadata?.instruments ?? null);
       fileName = name;
       sectionIndex = -1;
+      sectionEndIndex = -1;
+      //our own exports already carry their layers; a foreign file gets the arranging helpers
+      auxiliaryLayers = !importedMetadata;
+      phraseOctaves = !importedMetadata;
       sections = importedMetadata ? [] : detectMidiSections(midi.header, midi.duration);
       //round, not floor: this is the inverse of toMidi's setTempo(bpm / 4), and the tempo
       //survives serialization as an integer microseconds-per-quarter, so the value coming
@@ -338,6 +386,8 @@
     const selectedTracks = tracks.filter((track) => track.selected);
     for (const track of tracks) {
       track.numberOfAccidentals = 0;
+      track.extraLayers = 0;
+      track.unmappedHits = 0;
       track.outOfRange = 0;
       track.outOfRangeBounds.lower = 0;
       track.outOfRangeBounds.upper = 0;
@@ -349,37 +399,29 @@
       return logger.warn(t('composer:midi_parser.there_are_no_notes'));
     }
 
-    // The selected set IS the generated roster. Its file-order position is therefore both the
-    // import layer and the destination song layer; no state from the open composer participates.
-    const layers = selectedTracks.map((track) => track.instrument);
-    const result = importMidiTracks(
-      selectedTracks.map((track, layer) => ({
-        notes: trackNotes(track),
-        layer,
-        localOffset: track.localOffset,
-        maxScaling: track.maxScaling,
-      })),
-      {
-        bpm,
-        offset,
-        includeAccidentals,
-        includeOutOfRange,
-        keepAllDurations,
-        //the Basepoint the song below is given: the importer takes it off every incoming number
-        //and puts it back on every emitted one (ADR-0007), so the two must be the same value
-        pitch,
-        //the layers themselves, not a capability flag derived from them: the importer needs each
-        //layer's instrument to know what a snapped nominal sounds there, and reads the sustain
-        //capability off the same config — nothing here knows which game is loaded
-        layers,
-      }
-    );
-    selectedTracks.forEach((track, index) => {
-      const stats = result.perTrack[index];
-      track.numberOfAccidentals = stats.accidentals;
-      track.outOfRange = stats.outOfRange;
-      track.outOfRangeBounds.lower = stats.outOfRangeLower;
-      track.outOfRangeBounds.upper = stats.outOfRangeUpper;
+    // The selected set IS the generated roster, in file order: each track's main layer, followed
+    // by the auxiliary layers planned for it. No state from the open composer participates.
+    const { importTracks, layers, owners } = planLayers(selectedTracks);
+    const result = importMidiTracks(importTracks, {
+      bpm,
+      offset,
+      includeAccidentals,
+      includeOutOfRange,
+      keepAllDurations,
+      //the Basepoint the song below is given: the importer takes it off every incoming number
+      //and puts it back on every emitted one (ADR-0007), so the two must be the same value
+      pitch,
+      //the layers themselves, not a capability flag derived from them: the importer needs each
+      //layer's instrument to know what a snapped nominal sounds there, and reads the sustain
+      //capability off the same config — nothing here knows which game is loaded
+      layers,
+    });
+    result.perTrack.forEach((stats, index) => {
+      const track = owners[index];
+      track.numberOfAccidentals += stats.accidentals;
+      track.outOfRange += stats.outOfRange;
+      track.outOfRangeBounds.lower += stats.outOfRangeLower;
+      track.outOfRangeBounds.upper += stats.outOfRangeUpper;
     });
     // Publish the accounting before considering whether a preview can be installed. A conversion
     // whose policies exclude every note still has useful costs to show in the panel, and leaving
@@ -405,6 +447,115 @@
     }
     if (!componentAlive) return;
     functions.loadSong(song, { preview: true });
+  }
+
+  /**
+   * Turn the selected tracks into import layers (midiLayerPlan.ts): a mapped drum track becomes one
+   * layer of button hits; any other track may have its phrases moved by octaves, and its leftover
+   * notes spread over auxiliary layers - within the song's layer limit, which every track's main
+   * layer is guaranteed first.
+   */
+  function planLayers(selectedTracks: CustomTrack[]) {
+    const importTracks: MidiImportTrack[] = [];
+    const layers: InstrumentData[] = [];
+    const owners: CustomTrack[] = [];
+    //the importer's bpm counts columns: four of them make a quarter note
+    const quarterSeconds = bpm > 0 ? 240 / bpm : 1;
+    let budget = BASE_LAYER_LIMIT - selectedTracks.length;
+    const add = (
+      track: CustomTrack,
+      instrument: InstrumentData,
+      entry: Omit<MidiImportTrack, 'layer'>
+    ) => {
+      importTracks.push({ ...entry, layer: layers.length });
+      layers.push(instrument);
+      owners.push(track);
+    };
+    for (const track of selectedTracks) {
+      const name = track.instrument.name;
+      const mainPitch = effectiveTrackPitch(track.instrument, pitch);
+      let notes = trackNotes(track);
+      if (isMappedPercussion(track)) {
+        const mapped = mapPercussionNotes(notes, name, mainPitch, quarterSeconds / 2);
+        track.unmappedHits = mapped.unmapped;
+        add(track, track.instrument, {
+          notes: mapped.notes,
+          localOffset: 0,
+          maxScaling: 0,
+          direct: true,
+        });
+        continue;
+      }
+      const localOffset = track.localOffset ?? offset;
+      const extensions = auxiliaryLayers ? rangeExtensionsOf(name) : [];
+      if (phraseOctaves) {
+        notes = foldPhrases(notes, {
+          instruments: [name, ...extensions],
+          pitch: mainPitch,
+          localOffset,
+          phraseGapSeconds: quarterSeconds,
+          maxOctaves: 2,
+        }).notes;
+      }
+      const entry = { localOffset: track.localOffset, maxScaling: track.maxScaling };
+      if (!auxiliaryLayers || budget <= 0) {
+        add(track, track.instrument, { ...entry, notes });
+        continue;
+      }
+      const plan = planTrackLayers(notes, {
+        instrumentName: name,
+        pitch: mainPitch,
+        localOffset,
+        pitches: PITCHES,
+        extensions,
+        maxAuxiliaryLayers: budget,
+      });
+      for (const planned of plan) {
+        add(
+          track,
+          planned.role === 'main'
+            ? track.instrument
+            : auxiliaryInstrument(track, planned.instrumentName, planned.pitch, mainPitch),
+          {
+            ...entry,
+            notes: planned.notes,
+          }
+        );
+      }
+      track.extraLayers = plan.length - 1;
+      budget -= track.extraLayers;
+    }
+    return { importTracks, layers, owners };
+  }
+
+  /** The track's layer settings on another scale and/or a range-extension instrument. */
+  function auxiliaryInstrument(
+    track: CustomTrack,
+    name: string,
+    layerPitch: Pitch,
+    mainPitch: Pitch
+  ) {
+    const base =
+      name === track.instrument.name
+        ? track.instrument.clone()
+        : track.instrument.withInstrument(name);
+    const label = track.instrument.alias || track.name;
+    return base.set({
+      //same scale as the main layer: follow whatever the main layer follows (the song's or its own)
+      pitch:
+        layerPitch === mainPitch ? track.instrument.pitch : layerPitch === pitch ? '' : layerPitch,
+      alias: `${label} (${name === track.instrument.name ? layerPitch : name})`,
+    });
+  }
+
+  function toggleAuxiliaryLayers() {
+    auxiliaryLayers = !auxiliaryLayers;
+    if (tracks.length > 0) convertMidi();
+  }
+
+  function togglePhraseOctaves() {
+    phraseOctaves = !phraseOctaves;
+    if (tracks.length > 0) convertMidi();
   }
 
   function warnTrackLimit() {
@@ -437,13 +588,16 @@
       return logger.warn(t('composer:midi_parser.there_are_no_notes'));
     }
     const suggestion = suggestOffset(
-      selected.map((track) => ({
-        notes: trackNotes(track),
-        instrumentName: track.instrument.name,
-        pitch: effectiveTrackPitch(track.instrument, pitch),
-        localOffset: track.localOffset,
-        maxScaling: track.maxScaling,
-      }))
+      //mapped drum tracks ignore every offset, so they must not sway the choice
+      selected
+        .filter((track) => !isMappedPercussion(track))
+        .map((track) => ({
+          notes: trackNotes(track),
+          instrumentName: track.instrument.name,
+          pitch: effectiveTrackPitch(track.instrument, pitch),
+          localOffset: track.localOffset,
+          maxScaling: track.maxScaling,
+        }))
     );
     changeOffset(suggestion.offset);
     logger.success(
@@ -541,6 +695,30 @@
               {/each}
             </select>
           </Row>
+          {#if sectionIndex >= 0 && sectionIndex < sections.length - 1}
+            <Row justify="between" align="center">
+              <div class="row flex-centered" style="gap:0.5rem">
+                <span>{t('composer:midi_parser.section_until')}:</span>
+                <HelpTooltip buttonStyle="width:1.2rem;height:1.2rem">
+                  {t('composer:midi_parser.section_until_description')}
+                </HelpTooltip>
+              </div>
+              <select
+                class="midi-section-select"
+                style={midiInputsStyle}
+                value={sectionEndIndex}
+                onchange={(event) => changeSectionEnd(Number(event.currentTarget.value))}
+              >
+                {#each sections as section, i (i)}
+                  {#if i >= sectionIndex}
+                    <option value={i}>
+                      {`${i + 1}. ${formatTime(section.end)}`}
+                    </option>
+                  {/if}
+                {/each}
+              </select>
+            </Row>
+          {/if}
         {/if}
         <Row justify="between" align="center">
           <div class="row flex-centered" style="gap:0.5rem">
@@ -625,6 +803,32 @@
             styleOuter={midiInputsStyle}
           />
         </Row>
+        <Row justify="between" align="center">
+          <div class="row flex-centered" style="gap: 0.5rem">
+            <span>{t('composer:midi_parser.auxiliary_layers')}:</span>
+            <HelpTooltip position="left" buttonStyle="width:1.2rem;height:1.2rem">
+              {t('composer:midi_parser.auxiliary_layers_description')}
+            </HelpTooltip>
+          </div>
+          <Switch
+            checked={auxiliaryLayers}
+            onchange={toggleAuxiliaryLayers}
+            styleOuter={midiInputsStyle}
+          />
+        </Row>
+        <Row justify="between" align="center">
+          <div class="row flex-centered" style="gap: 0.5rem">
+            <span>{t('composer:midi_parser.phrase_octaves')}:</span>
+            <HelpTooltip position="left" buttonStyle="width:1.2rem;height:1.2rem">
+              {t('composer:midi_parser.phrase_octaves_description')}
+            </HelpTooltip>
+          </div>
+          <Switch
+            checked={phraseOctaves}
+            onchange={togglePhraseOctaves}
+            styleOuter={midiInputsStyle}
+          />
+        </Row>
       </Column>
     </fieldset>
     {#if tracks.length > 0}
@@ -632,7 +836,7 @@
         <legend>{t('composer:midi_parser.track_settings')}</legend>
         <Column style="width:100%">
           {#each tracks as track, i (i)}
-            <TrackInfo data={track} index={i} onChange={editTrack} />
+            <TrackInfo data={track} index={i} songPitch={pitch} onChange={editTrack} />
           {/each}
         </Column>
       </fieldset>

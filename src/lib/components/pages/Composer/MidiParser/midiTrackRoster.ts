@@ -20,6 +20,12 @@ export type CustomTrack = {
   outOfRange: number;
   localOffset: number | null;
   maxScaling: number;
+  /** A General MIDI drum track (channel 10): its notes name drums, not pitches. */
+  percussion: boolean;
+  /** Auxiliary layers the last conversion gave this track (accidentals, range extensions). */
+  extraLayers: number;
+  /** Drum hits the chosen instrument's percussion map has no button for. */
+  unmappedHits: number;
   outOfRangeBounds: {
     lower: number;
     upper: number;
@@ -57,6 +63,13 @@ export function parseMidiTrackName(rawName: string, originalIndex: number): Midi
   return { rawName, name, alias: rawName, pitch: '' };
 }
 
+/** Channel 10 (index 9) is General MIDI's drum kit; @tonejs/midi also flags it on the instrument. */
+export function isPercussionTrack(
+  track: Pick<Track, 'channel'> & { instrument?: { percussion?: boolean } }
+) {
+  return track.channel === 9 || track.instrument?.percussion === true;
+}
+
 /**
  * Build one editable layer candidate for every note-bearing MIDI track.
  *
@@ -79,7 +92,17 @@ export function buildMidiTrackRoster(
       const instrument = metadataInstrument
         ? metadataInstrument.clone()
         : new InstrumentData({
-            name: suggestMidiInstrument(track.instrument),
+            name: suggestMidiInstrument(
+              {
+                // explicit fields: @tonejs/midi exposes name/family as class getters, which a
+                // spread would drop
+                name: track.instrument.name,
+                family: track.instrument.family,
+                number: track.instrument.number,
+                percussion: isPercussionTrack(track),
+              },
+              parsedName.alias
+            ),
             alias: parsedName.alias,
             pitch: parsedName.pitch,
           });
@@ -94,6 +117,9 @@ export function buildMidiTrackRoster(
         numberOfAccidentals: 0,
         outOfRange: 0,
         maxScaling: 0,
+        percussion: isPercussionTrack(track),
+        extraLayers: 0,
+        unmappedHits: 0,
         outOfRangeBounds: {
           lower: 0,
           upper: 0,

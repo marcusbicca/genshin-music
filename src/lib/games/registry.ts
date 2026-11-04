@@ -25,6 +25,7 @@ import type { GameId, LoopRegion } from './types';
 import {
   BASE_NOTE_PITCH_CLASSES,
   type InstrumentDefinition,
+  type InstrumentMidiImport,
   type InstrumentNote,
   type InstrumentSettingDefinition,
   type InstrumentSettingsDefinition,
@@ -35,11 +36,55 @@ import {
 import type {
   GameJson,
   InstrumentMetaJson,
+  MidiImportMetaJson,
   NoteMetaJson,
   NotePresetsJson,
   VariantSettingMetaJson,
 } from './schema';
 import { isGeneralMidiFamily, isGeneralMidiPatchName } from './generalMidi';
+
+/**
+ * Validate an instrument's MIDI-import hints. Button indices must exist on the instrument; range
+ * extensions are checked against the game's instrument folders once every folder is known.
+ */
+function normalizeMidiImport(
+  context: string,
+  meta: MidiImportMetaJson | undefined,
+  buttonCount: number
+): InstrumentMidiImport | undefined {
+  if (meta === undefined) return undefined;
+  const maps = (field: 'percussionMap' | 'percussionAccents') => {
+    const source = meta[field] ?? {};
+    const out: Record<string, readonly number[]> = {};
+    for (const [key, buttons] of Object.entries(source)) {
+      const gmKey = Number(key);
+      if (!Number.isInteger(gmKey) || gmKey < 0 || gmKey > 127) {
+        fail(context, `midiImport.${field} key "${key}" is not a MIDI note number`);
+      }
+      if (!Array.isArray(buttons) || buttons.length === 0) {
+        fail(context, `midiImport.${field}["${key}"] must be a non-empty array of button indices`);
+      }
+      for (const button of buttons) {
+        if (!Number.isInteger(button) || button < 0 || button >= buttonCount) {
+          fail(
+            context,
+            `midiImport.${field}["${key}"] names button ${button}, which this instrument does not have`
+          );
+        }
+      }
+      out[key] = [...buttons];
+    }
+    return out;
+  };
+  const rangeExtensions = meta.rangeExtensions ?? [];
+  for (const name of rangeExtensions)
+    assertNonEmptyString(context, 'midiImport.rangeExtensions entry', name);
+  return {
+    rangeExtensions: [...rangeExtensions],
+    percussionMap: maps('percussionMap'),
+    percussionAccents: maps('percussionAccents'),
+  };
+}
 
 export type GameMeta = {
   gameJson: GameJson;
@@ -602,6 +647,46 @@ function buildGameMeta(id: string): GameMeta {
       // exactly the definition (and config-surface fixture entry) it always had.
       ...(settings !== undefined ? { settings } : {}),
     };
+    const midiImport = normalizeMidiImport(context, meta.midiImport, notes.length);
+    if (midiImport !== undefined) instruments[name].midiImport = midiImport;
+  }
+
+  const suggestions = gameJson.midi.instrumentSuggestions;
+  if (suggestions !== undefined) {
+    const context = `${id}/game.json midi.instrumentSuggestions`;
+    const assertInstrument = (field: string, name: unknown) => {
+      if (typeof name !== 'string' || !instruments[name]) {
+        fail(context, `${field} names "${String(name)}", which is not an instrument of this game`);
+      }
+    };
+    for (const hint of suggestions.trackNames ?? []) {
+      assertNonEmptyString(context, 'trackNames[].match', hint.match);
+      assertInstrument('trackNames', hint.instrument);
+    }
+    if (suggestions.drumKit !== undefined) assertInstrument('drumKit', suggestions.drumKit);
+    for (const range of suggestions.programs ?? []) {
+      if (
+        !Number.isInteger(range.from) ||
+        !Number.isInteger(range.to) ||
+        range.from < 0 ||
+        range.to > 127 ||
+        range.from > range.to
+      ) {
+        fail(context, `programs range ${range.from}..${range.to} is not within 0..127`);
+      }
+      assertInstrument('programs', range.instrument);
+    }
+  }
+
+  for (const [name, definition] of Object.entries(instruments)) {
+    for (const extension of definition.midiImport?.rangeExtensions ?? []) {
+      if (!instruments[extension] || extension === name) {
+        fail(
+          `${id}/${name}`,
+          `midiImport.rangeExtensions names "${extension}", which is not another instrument of this game`
+        );
+      }
+    }
   }
 
   for (const listed of gameJson.instruments.list) {

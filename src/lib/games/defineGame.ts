@@ -92,6 +92,14 @@ export function defineGame(
     midi: {
       bounds: gameJson.midi.bounds,
       presets: gameJson.midi.presets,
+      instrumentSuggestions: {
+        trackNames: (gameJson.midi.instrumentSuggestions?.trackNames ?? []).map((hint) => ({
+          match: hint.match.toLowerCase(),
+          instrument: hint.instrument,
+        })),
+        drumKit: gameJson.midi.instrumentSuggestions?.drumKit ?? null,
+        programs: gameJson.midi.instrumentSuggestions?.programs ?? [],
+      },
     },
     composer: gameJson.composer,
     themes: gameJson.themes,

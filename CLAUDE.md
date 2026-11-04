@@ -1,3 +1,9 @@
+## Language
+
+Write everything that goes into the repository in English: code comments, docs, commit messages,
+PR text. The upstream maintainer (Specy) does not read Portuguese. Chat replies can follow the
+user's language. Locale files (`static/locales/*.json`) are the exception: they are translations.
+
 ## Subagent model policy
 
 NEVER use the `fable` model for subagents/delegated agent work. Use `opus` instead. The only exception is when the user explicitly asks for fable in that specific request.

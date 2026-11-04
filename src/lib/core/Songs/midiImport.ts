@@ -31,8 +31,9 @@ import {
     effectiveTrackPitch,
     foldNumberIntoRange,
     getSoundingTable,
-    nominalToNumber,
+    noteIdToButton,
     numberToButton,
+    registerShift,
     snapMidiToGridPeriodically,
 } from './noteIds'
 
@@ -66,6 +67,26 @@ type MidiNumberTransform = {
 }
 
 /**
+ * The snapped number lifted onto the axis. It was folded and snapped on the SOUNDING axis
+ * (foldNumberIntoRange works there), so it is the pitch the note should sound: the key asked for it
+ * is the one whose NOMINAL is that pitch with the instrument's register taken off, and a key found
+ * that way enters its own Sounding Pitch - which is what carries a flavored button (Vintage-Lyre's
+ * Db button on the D row) - while a pitch with no key stays exactly itself, a strand at that pitch.
+ *
+ * The register is the whole fix of 2026-11-01. Without it the snapped pitch was looked up AS a
+ * nominal, and on a registered instrument the nominals and the pitches overlap an octave or more
+ * apart: Sky's Guitar (C3-C5, nominals C4-C6) took MIDI C4-C5 for its C4-C5 KEYS and sounded them
+ * at C3-C4, on top of the C3-C4 the file really had, so half of any in-range file came in an octave
+ * low and collided. Not noteIds.nominalToNumber, whose missing branch carries a nominal by the
+ * register: a missing PITCH is already where it belongs.
+ */
+function liftSnappedNumber(instrumentName: string, pitch: Pitch, id: number): number {
+    const button = noteIdToButton(instrumentName, id - registerShift(instrumentName))
+    const sounding = button === -1 ? id : (getSoundingTable(instrumentName)[button] ?? id)
+    return sounding + basepointOffset(pitch)
+}
+
+/**
  * The single per-number policy used by both conversion and offset scoring.
  *
  * The fold helper speaks the absolute sounding axis and removes/reapplies the Basepoint itself.
@@ -89,7 +110,7 @@ function transformMidiNumber(
 
     // `-1` can be a legitimate periodic nominal (MIDI -1 is B-2), so invalidity comes from the
     // pre-snap number, not the bounded helper's historical sentinel. Never lift a non-finite input:
-    // nominalToNumber(-1) would otherwise turn NaN into a plausible finite low note.
+    // the lift of -1 would otherwise turn NaN into a plausible finite low note.
     if (!Number.isFinite(foldedGridNumber)) {
         return {
             number: NaN,
@@ -100,7 +121,7 @@ function transformMidiNumber(
         }
     }
 
-    const number = nominalToNumber(group.instrumentName, group.pitch, snapped.id)
+    const number = liftSnappedNumber(group.instrumentName, group.pitch, snapped.id)
     const voiceable = numberToButton(group.instrumentName, group.pitch, number) !== -1
     const sounding = getSoundingTable(group.instrumentName)
     const min = Math.min(...sounding) + pitchOffset
@@ -115,6 +136,38 @@ function transformMidiNumber(
         addressable: Number.isFinite(number) && number >= span.min && number <= span.max,
         // A missing button between the extrema is a gap, not an invented direction.
         outOfRangeBound: voiceable ? 0 : outOfRangeBound,
+    }
+}
+
+/**
+ * Whether ONE file note lands cleanly on a layer: a real button of that instrument (not snapped
+ * from an accidental, not stranded, inside the Addressable Span). This is the question the layer
+ * planner (midiLayerPlan.ts) asks of every candidate layer, answered by the same policy the
+ * conversion uses, so a note the plan routes to a layer is a note the conversion will place there.
+ */
+export function midiNoteFitsLayer(
+    midi: number,
+    instrumentName: string,
+    pitch: Pitch,
+    localOffset: number
+): boolean {
+    const transformed = transformMidiNumber(midi, {instrumentName, pitch, localOffset, maxScaling: 0}, 0)
+    return !transformed.isAccidental && transformed.voiceable && transformed.addressable
+}
+
+/**
+ * Resolved Note Number for a track whose `notes[].midi` are ALREADY Note Numbers (percussion
+ * mapped onto buttons by midiLayerPlan.mapPercussionNotes): no offset, fold or snap applies.
+ */
+function directNumber(number: number, instrumentName: string, pitch: Pitch): MidiNumberTransform {
+    const voiceable = Number.isFinite(number) && numberToButton(instrumentName, pitch, number) !== -1
+    const span = addressableSpan()
+    return {
+        number,
+        isAccidental: false,
+        voiceable,
+        addressable: Number.isFinite(number) && number >= span.min && number <= span.max,
+        outOfRangeBound: 0,
     }
 }
 
@@ -248,6 +301,11 @@ export type MidiImportTrack = {
     localOffset: number | null
     /** Maximum number of octave moves the best-effort fold may make. */
     maxScaling: number
+    /**
+     * The notes' `midi` values are final Note Numbers for this layer (mapped percussion), not file
+     * pitches: they are placed as they are, with no offset, fold or accidental snap.
+     */
+    direct?: boolean
 }
 
 /** One generated-roster layer — the identity that decides what a snapped nominal becomes. */
@@ -285,8 +343,8 @@ export type MidiImportOptions = {
      * It is read on BOTH sides of the snap, which is what makes import the inverse of export: a
      * file's midi number is an ABSOLUTE sounding pitch (what `toMidi` writes, and what a DAW means
      * by it), while the snap speaks the grid's NOMINAL axis — so the layer's Basepoint comes off
-     * before the number is snapped, and `nominalToNumber` carries the snapped nominal back onto the
-     * absolute axis through that layer's own instrument. The snap remains white-key as ADR-0007
+     * before the number is snapped, and `liftSnappedNumber` carries the snapped pitch back onto the
+     * absolute axis through that layer's own instrument, its register included. The snap remains white-key as ADR-0007
      * requires, but repeats periodically now; Song Grid display bounds are no longer a discard rule.
      *
      * Two consequences, both intended:
@@ -437,12 +495,14 @@ export function importMidiTracks(
         const pitch = pitchOf(track.layer)
         for (const midiNote of track.notes) {
             totalNotes++
-            const transformed = transformMidiNumber(midiNote.midi, {
-                instrumentName,
-                pitch,
-                localOffset: track.localOffset,
-                maxScaling: track.maxScaling,
-            }, offset)
+            const transformed = track.direct === true
+                ? directNumber(midiNote.midi, instrumentName, pitch)
+                : transformMidiNumber(midiNote.midi, {
+                    instrumentName,
+                    pitch,
+                    localOffset: track.localOffset,
+                    maxScaling: track.maxScaling,
+                }, offset)
             if (transformed.isAccidental) {
                 accidentals++
                 stats.accidentals++
