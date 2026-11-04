@@ -651,6 +651,33 @@ function buildGameMeta(id: string): GameMeta {
     if (midiImport !== undefined) instruments[name].midiImport = midiImport;
   }
 
+  const suggestions = gameJson.midi.instrumentSuggestions;
+  if (suggestions !== undefined) {
+    const context = `${id}/game.json midi.instrumentSuggestions`;
+    const assertInstrument = (field: string, name: unknown) => {
+      if (typeof name !== 'string' || !instruments[name]) {
+        fail(context, `${field} names "${String(name)}", which is not an instrument of this game`);
+      }
+    };
+    for (const hint of suggestions.trackNames ?? []) {
+      assertNonEmptyString(context, 'trackNames[].match', hint.match);
+      assertInstrument('trackNames', hint.instrument);
+    }
+    if (suggestions.drumKit !== undefined) assertInstrument('drumKit', suggestions.drumKit);
+    for (const range of suggestions.programs ?? []) {
+      if (
+        !Number.isInteger(range.from) ||
+        !Number.isInteger(range.to) ||
+        range.from < 0 ||
+        range.to > 127 ||
+        range.from > range.to
+      ) {
+        fail(context, `programs range ${range.from}..${range.to} is not within 0..127`);
+      }
+      assertInstrument('programs', range.instrument);
+    }
+  }
+
   for (const [name, definition] of Object.entries(instruments)) {
     for (const extension of definition.midiImport?.rangeExtensions ?? []) {
       if (!instruments[extension] || extension === name) {

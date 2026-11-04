@@ -352,6 +352,13 @@ export type InstrumentDefinition = {
   midiImport?: InstrumentMidiImport;
 };
 
+/** Normalized MidiInstrumentSuggestionsJson: every list present, names lowercased. */
+export type MidiInstrumentSuggestions = {
+  trackNames: readonly { match: string; instrument: string }[];
+  drumKit: string | null;
+  programs: readonly { from: number; to: number; instrument: string }[];
+};
+
 /** Normalized MIDI-import hints: every field present, button indices validated. */
 export type InstrumentMidiImport = {
   rangeExtensions: readonly string[];
@@ -468,6 +475,8 @@ export interface GameDefinition {
     // authored beside it (ADR-0007 phase E, see Songs/noteIds.snapMidiToGrid).
     bounds: { upper: number; lower: number }; // MIDI_BOUNDS — the range the snap accepts
     presets: MIDIPreset[]; // MIDI_PRESETS
+    /** The game's own instrument-picking table for foreign tracks (schema.ts); empty when unauthored. */
+    instrumentSuggestions: MidiInstrumentSuggestions;
   };
 
   // ── composer ──────────────────────────────────────────────────────────────

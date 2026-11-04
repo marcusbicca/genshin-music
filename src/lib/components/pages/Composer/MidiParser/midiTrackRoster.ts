@@ -92,7 +92,17 @@ export function buildMidiTrackRoster(
       const instrument = metadataInstrument
         ? metadataInstrument.clone()
         : new InstrumentData({
-            name: suggestMidiInstrument(track.instrument),
+            name: suggestMidiInstrument(
+              {
+                // explicit fields: @tonejs/midi exposes name/family as class getters, which a
+                // spread would drop
+                name: track.instrument.name,
+                family: track.instrument.family,
+                number: track.instrument.number,
+                percussion: isPercussionTrack(track),
+              },
+              parsedName.alias
+            ),
             alias: parsedName.alias,
             pitch: parsedName.pitch,
           });

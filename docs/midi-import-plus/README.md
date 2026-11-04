@@ -95,7 +95,12 @@ their layers).
 3. **Piano → WinterPiano**: declared in config, `midiImport.rangeExtensions` in
    `src/lib/games/sky/instruments/Piano/meta.json`. The importer names no instrument and no game.
    Another extension is just the same field in another `meta.json`.
-4. ~~Guitar → Pipa suggestion~~: dropped (the user picks the instrument).
+4. **Instrument suggestion from the prototype**: Sky's `game.json` now carries
+   `midi.instrumentSuggestions`, the prototype's tables: track-name hints first (ordered: "double
+   bass" before "bass", "sax" before "alto"; includes Portuguese names like "violão", "baixo"), then
+   `drumKit` (DunDun) for channel-10 tracks, then GM program ranges (guitars 24–31 → Pipa, basses →
+   Contrabass, strings → Violin/Cello, ...). Only what the table doesn't answer falls back to GM
+   family matching. It is still just the starting pick; the user chooses the final instrument.
 5. **GM percussion (channel 10)**: `midiImport.percussionMap` (+ `percussionAccents` for isolated
    hits) in Sky's DunDun and Drum `meta.json`, with the prototype's table (kick → C, snare → D,
    isolated snare → D+E+G+B, low tom → E, high tom/conga → G, ride → F, hi-hat etc. → A,
@@ -116,7 +121,6 @@ Config: the schema gained the optional `midiImport` field (`schema.ts`, `types.t
 ### Not done yet (prototype only)
 
 - Merge same-program tracks in large orchestral MIDIs (to fit the layer limit).
-- Guess the instrument from the track name when the MIDI has no program.
 
 ## 5. Python prototype
 

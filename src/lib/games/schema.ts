@@ -199,6 +199,20 @@ export type MidiImportMetaJson = {
 };
 
 /**
+ * A game's own instrument-picking table for foreign MIDI tracks, tried in this order:
+ *  1. `trackNames` - the first entry whose `match` occurs in the track name (case-insensitive).
+ *     Ordered on purpose: "double bass" must be tried before "bass", "sax" before "alto".
+ *  2. `drumKit` - the instrument for a General MIDI drum track (channel 10).
+ *  3. `programs` - the entry whose `from`..`to` range holds the track's GM program (0-127).
+ * Anything none of them answers falls back to GM family matching (midiInstrumentSuggestion.ts).
+ */
+export type MidiInstrumentSuggestionsJson = {
+  trackNames?: { match: string; instrument: string }[];
+  drumKit?: string;
+  programs?: { from: number; to: number; instrument: string }[];
+};
+
+/**
  * games/<id>/game.json — everything game-level that data can express.
  * What stays CODE in the game folder: shapes.ts (Shape implementations, ADR-0003),
  * glyphs/*.svelte (icon components). What is DERIVED by the normalizer, never
@@ -292,6 +306,8 @@ export type GameJson = {
      */
     bounds: { upper: number; lower: number };
     presets: MIDIPreset[];
+    /** How the importer picks an instrument for a foreign track. Absent = family matching only. */
+    instrumentSuggestions?: MidiInstrumentSuggestionsJson;
   };
 
   composer: {

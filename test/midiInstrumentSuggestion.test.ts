@@ -175,3 +175,59 @@ describe('MIDI instrument suggestion', () => {
     }
   );
 });
+
+describe("the game's own suggestion table (game.json midi.instrumentSuggestions)", () => {
+  const table = game.midi.instrumentSuggestions;
+  const authored = table.trackNames.length > 0 || table.programs.length > 0;
+
+  it.skipIf(!authored)('names only instruments the game has', () => {
+    for (const entry of [...table.trackNames, ...table.programs]) {
+      expect(definitions[entry.instrument]).toBeDefined();
+    }
+    if (table.drumKit !== null) expect(definitions[table.drumKit]).toBeDefined();
+  });
+
+  it.skipIf(!authored)('lets the track name win over the program', () => {
+    const hint = table.trackNames[0];
+    // program 0 is what most files carry when they never set one
+    expect(suggestMidiInstrument({ number: 0, family: 'piano' }, `Solo ${hint.match.toUpperCase()}`)).toBe(
+      hint.instrument
+    );
+  });
+
+  it.skipIf(!authored)('tries track names in order, so a longer phrase can beat a shorter one', () => {
+    const index = (match: string) => table.trackNames.findIndex((entry) => entry.match === match);
+    if (index('double bass') >= 0 && index('bass') >= 0) {
+      expect(index('double bass')).toBeLessThan(index('bass'));
+    }
+  });
+
+  it.skipIf(!authored)('uses the program range when the name says nothing', () => {
+    for (const range of table.programs) {
+      expect(suggestMidiInstrument({ number: range.from }, 'Track 1')).toBe(range.instrument);
+      expect(suggestMidiInstrument({ number: range.to }, '')).toBe(range.instrument);
+    }
+  });
+
+  it.skipIf(table.drumKit === null)('sends a channel-10 track to the drum kit, whatever its program', () => {
+    expect(suggestMidiInstrument({ number: 0, family: 'drums', percussion: true })).toBe(table.drumKit);
+  });
+
+  it('falls back to family matching without a name or program', () => {
+    expect(suggestMidiInstrument({ family: 'piano' })).toBe(suggestMidiInstrument({ family: 'piano' }, ''));
+  });
+});
+
+describe.skipIf(game.id !== 'sky')('Sky picks', () => {
+  it.each([
+    [24, '', 'Pipa'],
+    [33, '', 'Contrabass'],
+    [42, '', 'Cello'],
+    [0, 'Violino I', 'Violin'],
+    [0, 'Double Bass', 'Contrabass'],
+    [0, 'Alto Sax', 'Saxophone'],
+    [56, 'Trumpet in Bb', 'Trumpet'],
+  ])('program %i named "%s" -> %s', (number, name, expected) => {
+    expect(suggestMidiInstrument({ number }, name)).toBe(expected);
+  });
+});
