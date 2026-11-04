@@ -348,6 +348,15 @@ export type InstrumentDefinition = {
   notes: readonly InstrumentNote[];
   /** Declared Instrument Settings (ADR-0018); present only when the instrument declares any. */
   settings?: InstrumentSettingsDefinition;
+  /** MIDI-import hints (schema.ts MidiImportMetaJson); present only when declared. */
+  midiImport?: InstrumentMidiImport;
+};
+
+/** Normalized MIDI-import hints: every field present, button indices validated. */
+export type InstrumentMidiImport = {
+  rangeExtensions: readonly string[];
+  percussionMap: Readonly<Record<string, readonly number[]>>;
+  percussionAccents: Readonly<Record<string, readonly number[]>>;
 };
 
 export type TempoChanger = {

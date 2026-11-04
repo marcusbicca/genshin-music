@@ -171,6 +171,31 @@ export type InstrumentMetaJson = {
    * sounds exactly as it did before settings existed.
    */
   settings?: Record<string, InstrumentSettingMetaJson>;
+  /** How the MIDI importer may use this instrument. Absent = none of the extras below. */
+  midiImport?: MidiImportMetaJson;
+};
+
+/**
+ * MIDI-import hints an instrument declares about itself. Pure data, read by the importer only;
+ * a game gains these behaviours by authoring them here, never by the importer naming a game.
+ */
+export type MidiImportMetaJson = {
+  /**
+   * Instruments (of the same game) that continue this one's range: notes this instrument cannot
+   * reach may go to an extra layer of one of these, at the same scale, instead of changing octave.
+   * Sky's WinterPiano starts on Piano's 8th button, so it extends Piano upward.
+   */
+  rangeExtensions?: string[];
+  /**
+   * General MIDI percussion key (channel 10 note number, as a string) -> the button indices it
+   * hits on this instrument. A GM key absent from the map is not imported.
+   */
+  percussionMap?: Record<string, number[]>;
+  /**
+   * Same shape as percussionMap, used instead of it for an ISOLATED hit (no other hit of the same
+   * GM key within an eighth note): a fuller cluster for a lone accent, the plain map inside a roll.
+   */
+  percussionAccents?: Record<string, number[]>;
 };
 
 /**

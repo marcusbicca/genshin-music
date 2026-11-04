@@ -3,5 +3,8 @@
   "family": "piano",
   "midiName": "acoustic grand piano",
   "shape": "sky-3x5",
-  "notes": "standard-15"
+  "notes": "standard-15",
+  "midiImport": {
+    "rangeExtensions": ["WinterPiano"]
+  }
 }
