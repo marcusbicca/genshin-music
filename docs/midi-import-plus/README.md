@@ -74,14 +74,23 @@ Claude Code sem perder contexto.
 
 ## 4. Pendências / próximos passos
 
-1. **Escala extra pras notas que sobram**: quando uma track tem acidentes, criar uma 2ª layer do
-   mesmo instrumento com outra escala só pra essas notas (no protótipo funcionava bem).
+1. **Layers auxiliares pros acidentes (opcional, toggle)**: a track fica com uma layer principal
+   na escala/oitava que encaixa mais notas (`suggestTrackFit`). As notas que sobram (acidentes)
+   vão pra layers auxiliares **do mesmo instrumento** com outra escala, escolhidas de forma
+   gulosa: a cada passo, a escala que cobre mais notas restantes. Assim sai o menor número de
+   layers possível. Respeitar `BASE_LAYER_LIMIT`. Esse é o jeito preferido de resolver acidentes
+   (no protótipo funcionava bem).
 2. **Dobra por frase**: notas fora do alcance → mover a frase inteira de oitava (protótipo:
    frase = trecho sem pausa de 1 semínima), não nota por nota (`maxScaling` hoje é por nota).
-3. **Mandar nota fora do alcance pra outro instrumento** (agudo → WinterPiano/Piano, grave →
-   Cello/Contrabass) em vez de dobrar oitava.
-4. **Sugestão de instrumento**: violão (GM 24–31) → Pipa; revisar o resto da tabela
-   (`src/lib/games/midiInstrumentSuggestion.ts` usa `midiName`/`family` dos meta.json).
+3. **Estender o Piano com o WinterPiano**: é a **única** troca de instrumento desejada. Piano =
+   C4–C6 e WinterPiano = C5–C7 (com a mesma escala); a 1ª tecla do WinterPiano é a 8ª do Piano,
+   então juntos cobrem C4–C7. Notas agudas demais pro Piano podem ir pra uma layer auxiliar de
+   WinterPiano (mesma escala) em vez de dobrar oitava. Fazer isso pela config (o instrumento
+   declara qual outro o estende), sem decidir pelo id do jogo. **Não** existe "spill" genérico
+   (o `SPILL` do protótipo é só do modo antigo `auto`, nunca foi a intenção): a regra é uma
+   layer por track + as auxiliares dela.
+4. ~~Sugestão de instrumento (violão → Pipa)~~: descartado. A sugestão é só um ponto de partida;
+   quem escolhe o instrumento final é o usuário na tela de import.
 5. **Percussão GM (canal 10)**: mapear notas GM → teclas do DunDun/Drum (tabela do protótipo:
    bumbo → C; caixa → D (+E+G+B como "caixa forte" em batidas soltas, só D em rufo);
    tom grave → E; tom agudo/conga → G; crash → C agudo; condução → F; chimbal/pandeirola/cabasa →
