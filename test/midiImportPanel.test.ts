@@ -53,6 +53,15 @@ describe('MIDI import panel policies', () => {
   });
 });
 
+describe('MIDI import instrument swaps', () => {
+  it('re-fits a track to the instrument it is swapped to', () => {
+    // registers differ per instrument: the octave fitted for the old one strands the notes on the new
+    const edit = midiParser.slice(midiParser.indexOf('function editTrack'));
+    expect(edit).toContain('update.instrument.name !== previousInstrument');
+    expect(edit.indexOf('fitTrack(track)')).toBeLessThan(edit.indexOf('convertMidi()'));
+  });
+});
+
 describe('MIDI import panel accounting', () => {
   it('publishes totals before an all-dropped conversion refuses its preview', () => {
     const publish = midiParser.indexOf('totalNotes = result.totalNotes;');

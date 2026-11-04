@@ -267,19 +267,29 @@
    * Give every track its own Basepoint and octave (suggestTrackFit): each layer has its own 15
    * buttons, so the best scale/octave for the melody is rarely the best one for the bass.
    */
+  /**
+   * Fit ONE track to its current instrument: the layer scale and whole-octave offset that put the
+   * most notes on that instrument's buttons. Returns null for a track with nothing to fit.
+   */
+  function fitTrack(track: CustomTrack) {
+    const notes = trackNotes(track);
+    if (notes.length === 0) return null;
+    //a mapped drum track is placed key by key; there is no scale or octave to fit
+    if (isMappedPercussion(track)) return null;
+    const fit = suggestTrackFit(notes, track.instrument.name, pitch, track.maxScaling, PITCHES);
+    track.instrument = track.instrument
+      .clone()
+      .set({ pitch: fit.pitch === pitch ? '' : fit.pitch });
+    track.localOffset = fit.localOffset;
+    return fit;
+  }
+
   function autoFitTracks(announce = true) {
     let stranded = 0;
     let accidentalCount = 0;
     for (const track of tracks) {
-      const notes = trackNotes(track);
-      if (notes.length === 0) continue;
-      //a mapped drum track is placed key by key; there is no scale or octave to fit
-      if (isMappedPercussion(track)) continue;
-      const fit = suggestTrackFit(notes, track.instrument.name, pitch, track.maxScaling, PITCHES);
-      track.instrument = track.instrument
-        .clone()
-        .set({ pitch: fit.pitch === pitch ? '' : fit.pitch });
-      track.localOffset = fit.localOffset;
+      const fit = fitTrack(track);
+      if (!fit) continue;
       if (track.selected) {
         stranded += fit.stranded;
         accidentalCount += fit.accidentals;
@@ -576,7 +586,12 @@
     ) {
       return warnTrackLimit();
     }
+    const previousInstrument = track.instrument.name;
     Object.assign(track, update);
+    //Instruments sit in different registers (Violin C4-C6, Cello C2-C4, WinterPiano C5-C7...), so
+    //the octave fitted for the old one strands most notes on the new one - they would silently
+    //vanish as out of range. A swap therefore re-fits the track to the instrument it now has.
+    if (update.instrument && update.instrument.name !== previousInstrument) fitTrack(track);
     if (tracks.length > 0) convertMidi();
   }
 
