@@ -347,6 +347,11 @@
   >
     {@render faTimesIcon()}
   </MenuButton>
+  <!-- For a canvas left blank after the app comes back from the background on a phone: the
+       graphics are rebuilt from the live song, so nothing in it is lost. -->
+  <MenuButton onclick={() => functions.redrawCanvas()} ariaLabel={t('menu:redraw_composer')}>
+    <IconRotate />
+  </MenuButton>
   <MenuButton
     onclick={functions.updateThisSong}
     class={data.hasChanges ? 'not-saved' : ''}
@@ -360,11 +365,6 @@
   <MenuItem id="Settings" ariaLabel={t('menu:open_settings_menu')}>
     {@render faCogIcon()}
   </MenuItem>
-  <!-- For a canvas left blank after the app comes back from the background on a phone: the
-       graphics are rebuilt from the live song, so nothing in it is lost. -->
-  <MenuButton onclick={() => functions.redrawCanvas()} ariaLabel={t('menu:redraw_composer')}>
-    <IconRotate />
-  </MenuButton>
   <!-- Navigates to '/' (the home page) rather than opening the old home overlay - see
        HomeContent.svelte's header. -->
   <MenuButton

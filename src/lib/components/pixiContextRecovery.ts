@@ -19,27 +19,7 @@ export interface WebGLContextRecoveryCallbacks {
   onLost: () => void;
   onRestored: () => void;
   onRecoveryTimeout: () => void;
-  /**
-   * Whether the context is lost right now, read when the page comes back to the foreground. Some
-   * mobile browsers (iOS Safari, several Android WebViews) drop a background page's context
-   * without ever dispatching `webglcontextlost`; asking is the only way to notice.
-   */
-  isContextLost?: () => boolean;
-  /**
-   * The page is visible again and the context is NOT lost. Mobile browsers may still have
-   * discarded the canvas' pixels while the page was hidden, and a renderer that only paints on
-   * demand would then show an empty canvas until something else asked for a frame - so the owner
-   * repaints everything here.
-   */
-  onResume?: () => void;
 }
-
-/**
- * How long after the page becomes visible the resume check runs: the GPU process of a mobile
- * browser can take a moment to hand the context back, and a check made in the same task as
- * `visibilitychange` may see a context that is about to be reported lost.
- */
-export const WEBGL_RESUME_CHECK_DELAY_MS = 250;
 
 /**
  * Observe the browser-level context lifecycle that sits below Pixi.
@@ -90,41 +70,12 @@ export function observeWebGLContext(
     callbacks.onRestored();
   };
 
-  let resumeCheck: ReturnType<typeof setTimeout> | null = null;
-  const clearResumeCheck = () => {
-    if (resumeCheck !== null) clearTimeout(resumeCheck);
-    resumeCheck = null;
-  };
-  const scheduleResumeCheck = () => {
-    clearResumeCheck();
-    resumeCheck = setTimeout(() => {
-      resumeCheck = null;
-      if (disposed || document.visibilityState !== 'visible') return;
-      // a loss the browser never announced: run the same path an announced one takes
-      if (!lost && callbacks.isContextLost?.()) {
-        lost = true;
-        callbacks.onLost();
-        scheduleRecoveryTimeout();
-        return;
-      }
-      if (!lost) callbacks.onResume?.();
-    }, WEBGL_RESUME_CHECK_DELAY_MS);
-  };
-
   const handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
-      scheduleRecoveryTimeout();
-      scheduleResumeCheck();
-    } else {
-      clearRecoveryTimeout();
-      clearResumeCheck();
-    }
+    if (document.visibilityState === 'visible') scheduleRecoveryTimeout();
+    else clearRecoveryTimeout();
   };
 
-  const handlePageShow = () => {
-    scheduleRecoveryTimeout();
-    scheduleResumeCheck();
-  };
+  const handlePageShow = () => scheduleRecoveryTimeout();
 
   canvas.addEventListener('webglcontextlost', handleContextLost);
   canvas.addEventListener('webglcontextrestored', handleContextRestored);
@@ -134,7 +85,6 @@ export function observeWebGLContext(
   return () => {
     disposed = true;
     clearRecoveryTimeout();
-    clearResumeCheck();
     canvas.removeEventListener('webglcontextlost', handleContextLost);
     canvas.removeEventListener('webglcontextrestored', handleContextRestored);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
