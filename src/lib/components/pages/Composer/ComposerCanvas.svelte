@@ -115,11 +115,14 @@
      *  - `proCellRect` is where a cell IS on screen, which is the anchor a popover opened from a
      *    PHYSICAL note key falls back to when the on-screen keyboard is off-screen. Null in the
      *    Compressed View, which draws no such cell.
+     *  - `rebuildGraphics` is the one thing the parent can TELL it: throw the graphics away and draw
+     *    them again from the live state (the composer menu's Redraw button). The song is untouched.
      */
     onCanvasMeasures: (
       measures: {
         columnWidth: () => number;
         proCellRect: (column: number, number: number) => ScreenRect | null;
+        rebuildGraphics: () => void;
       } | null
     ) => void;
     /** A settled Pro View tap made while the keyboard sheet is up: lower it, and edit nothing. */
@@ -352,6 +355,7 @@
       onCanvasMeasures({
         columnWidth: () => instance.visibleColumnWidth(),
         proCellRect: (column, number) => instance.proCellScreenRectAt(column, number),
+        rebuildGraphics: () => instance.rebuildGraphics(),
       });
       disposeShortcuts = createShortcutListener(
         'composer',

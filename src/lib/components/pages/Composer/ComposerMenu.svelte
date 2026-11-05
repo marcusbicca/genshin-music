@@ -36,6 +36,7 @@
   import FilePicker, { type FileElement } from '$cmp/inputs/FilePicker.svelte';
   import IconUpload from '~icons/fa6-solid/upload';
   import IconPlus from '~icons/fa6-solid/plus';
+  import IconRotate from '~icons/fa6-solid/rotate';
   import HelpTooltip from '$cmp/utility/HelpTooltip.svelte';
   import DonateButton from '$cmp/DonateButton.svelte';
 
@@ -65,6 +66,8 @@
       handleSettingChange: (data: SettingUpdate) => void;
       changeVolume: (data: SettingVolumeUpdate) => void;
       changeMidiVisibility: (visible: boolean) => void;
+      /** Draw the composer's canvas again from scratch, keeping the song (see rebuildGraphics). */
+      redrawCanvas: () => void;
     };
     inPreview?: boolean;
     /**
@@ -357,6 +360,11 @@
   <MenuItem id="Settings" ariaLabel={t('menu:open_settings_menu')}>
     {@render faCogIcon()}
   </MenuItem>
+  <!-- For a canvas left blank after the app comes back from the background on a phone: the
+       graphics are rebuilt from the live song, so nothing in it is lost. -->
+  <MenuButton onclick={() => functions.redrawCanvas()} ariaLabel={t('menu:redraw_composer')}>
+    <IconRotate />
+  </MenuButton>
   <!-- Navigates to '/' (the home page) rather than opening the old home overlay - see
        HomeContent.svelte's header. -->
   <MenuButton

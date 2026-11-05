@@ -3,6 +3,7 @@ import {
   observeWebGLContext,
   pixiResolution,
   WEBGL_CONTEXT_RECOVERY_TIMEOUT_MS,
+  WEBGL_RESUME_CHECK_DELAY_MS,
 } from '$cmp/pixiContextRecovery';
 
 afterEach(() => {
@@ -54,5 +55,62 @@ describe('Pixi context recovery', () => {
     expect(onRecoveryTimeout).toHaveBeenCalledOnce();
 
     dispose();
+  });
+
+  it('repaints a live context when the page comes back to the foreground', () => {
+    vi.useFakeTimers();
+    const canvas = document.createElement('canvas');
+    const onResume = vi.fn();
+    const onLost = vi.fn();
+    const dispose = observeWebGLContext(canvas, {
+      onLost,
+      onRestored: () => {},
+      onRecoveryTimeout: () => {},
+      isContextLost: () => false,
+      onResume,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(onResume).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(WEBGL_RESUME_CHECK_DELAY_MS);
+    expect(onResume).toHaveBeenCalledOnce();
+    expect(onLost).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it('treats a loss the browser never announced like an announced one', () => {
+    vi.useFakeTimers();
+    const canvas = document.createElement('canvas');
+    const onResume = vi.fn();
+    const onLost = vi.fn();
+    const onRecoveryTimeout = vi.fn();
+    const dispose = observeWebGLContext(canvas, {
+      onLost,
+      onRestored: () => {},
+      onRecoveryTimeout,
+      isContextLost: () => true,
+      onResume,
+    });
+    window.dispatchEvent(new Event('pageshow'));
+    vi.advanceTimersByTime(WEBGL_RESUME_CHECK_DELAY_MS);
+    expect(onLost).toHaveBeenCalledOnce();
+    expect(onResume).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(WEBGL_CONTEXT_RECOVERY_TIMEOUT_MS);
+    expect(onRecoveryTimeout).toHaveBeenCalledOnce();
+    dispose();
+  });
+
+  it('runs no resume check after disposal', () => {
+    vi.useFakeTimers();
+    const onResume = vi.fn();
+    const dispose = observeWebGLContext(document.createElement('canvas'), {
+      onLost: () => {},
+      onRestored: () => {},
+      onRecoveryTimeout: () => {},
+      onResume,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    dispose();
+    vi.advanceTimersByTime(WEBGL_RESUME_CHECK_DELAY_MS);
+    expect(onResume).not.toHaveBeenCalled();
   });
 });

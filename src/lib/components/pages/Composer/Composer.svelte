@@ -1205,6 +1205,7 @@
   let canvasMeasures: {
     columnWidth: () => number;
     proCellRect: (column: number, number: number) => ScreenRect | null;
+    rebuildGraphics: () => void;
   } | null = null;
 
   // ── note press state machine (spec 2026-08-03 §2 "Composer duration UX") ─────────
@@ -3172,6 +3173,7 @@
     handleSettingChange,
     changeVolume,
     changeMidiVisibility,
+    redrawCanvas: () => canvasMeasures?.rebuildGraphics(),
   }}
   {inPreview}
   onPanelOpenChange={(open) => (menuDismissesClicks = open)}

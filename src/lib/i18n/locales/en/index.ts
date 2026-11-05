@@ -283,6 +283,8 @@ export const i18n_en = {
     ].join('\n'),
   },
   menu: {
+    // the composer menu's button that rebuilds a canvas left blank (the song is kept)
+    redraw_composer: 'Redraw the composer',
     close_menu: 'Close menu',
     toggle_menu: 'Toggle menu',
     open_settings_menu: 'Open settings menu',

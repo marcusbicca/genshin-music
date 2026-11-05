@@ -2524,7 +2524,37 @@ export class ComposerRenderer {
       onLost: this.handleContextLost,
       onRestored: this.handleContextRestored,
       onRecoveryTimeout: this.replaceUnrestoredRenderer,
+      isContextLost: this.isNotesContextLost,
+      onResume: this.repaintAfterResume,
     });
+  }
+
+  /** The WebGL context's own answer; false for a Canvas/WebGPU renderer, which has none to lose. */
+  private isNotesContextLost = (): boolean => {
+    const gl = (this.notesApp?.renderer as { gl?: WebGLRenderingContext } | undefined)?.gl;
+    return gl?.isContextLost?.() ?? false;
+  };
+
+  /**
+   * BACK FROM THE BACKGROUND WITH A LIVE CONTEXT. Mobile browsers may still have thrown the canvas'
+   * pixels (and the generated textures with them) away while the page was hidden, and this class
+   * only renders when something asks it to - so without this the composer stayed blank, music
+   * playing and notes intact, until the page was left and reopened. A full rebuild, the same one a
+   * resize or theme change makes, is cheap next to that.
+   */
+  private repaintAfterResume = () => {
+    if (this.destroyed || this.contextLost || this.replacingLostRenderer) return;
+    this.recalculateCacheAndSizes();
+  };
+
+  /**
+   * THE USER'S "REDRAW" (the composer menu's button): swap the Pixi Application for a fresh one and
+   * rebuild every texture from the live state. Nothing the song holds lives in pixi, so the song,
+   * the selection, the history and playback are untouched - this is the in-app version of leaving
+   * the page and coming back, for a blank canvas no automatic path caught.
+   */
+  public rebuildGraphics(): void {
+    void this.replaceUnrestoredRendererAsync(true);
   }
 
   private handleContextLost = () => {
@@ -2555,15 +2585,24 @@ export class ComposerRenderer {
     void this.replaceUnrestoredRendererAsync();
   };
 
-  private async replaceUnrestoredRendererAsync(): Promise<void> {
+  private async replaceUnrestoredRendererAsync(requested = false): Promise<void> {
     const oldApp = this.notesApp;
     const oldCanvas = this.wheelCanvas;
-    if (this.destroyed || this.replacingLostRenderer || !this.contextLost || !oldApp || !oldCanvas)
-      return;
+    if (this.destroyed || this.replacingLostRenderer || !oldApp || !oldCanvas) return;
+    //a loss nobody asked about must still be a real one; a requested redraw replaces a live renderer
+    if (!requested && !this.contextLost) return;
 
     this.replacingLostRenderer = true;
-    const preference: RendererPreference = this.hasRestartedWebGL ? 'canvas' : 'webgl';
-    if (preference === 'webgl') this.hasRestartedWebGL = true;
+    //a requested redraw keeps the backend in use (a Canvas fallback stays Canvas) and does not spend
+    //the one WebGL restart a real loss is allowed
+    const preference: RendererPreference = requested
+      ? oldApp.renderer.name === 'canvas'
+        ? 'canvas'
+        : 'webgl'
+      : this.hasRestartedWebGL
+        ? 'canvas'
+        : 'webgl';
+    if (preference === 'webgl' && !requested) this.hasRestartedWebGL = true;
     let replacement: Application;
     try {
       replacement = await this.createNotesApplication(preference);
