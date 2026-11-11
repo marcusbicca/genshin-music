@@ -9,6 +9,7 @@
   import { ComposedSong } from '$core/Songs/ComposedSong.svelte';
   import {
     importMidiTracks,
+    midiNoteFitsLayer,
     suggestOffset,
     suggestTrackFit,
     type MidiImportTrack,
@@ -19,7 +20,10 @@
     mapPercussionNotes,
     planTrackLayers,
     rangeExtensionsOf,
+    foldPlannedLayers,
+    type PlannedLayer,
   } from '$core/Songs/midiLayerPlan';
+  import type { MissingKeyPolicy } from '$core/Songs/layerMerge';
   import {
     detectMidiSections,
     mergeSectionRange,
@@ -33,6 +37,7 @@
   import { t } from '$i18n/binding.svelte';
   import FilePicker, { type FileElement } from '$cmp/inputs/FilePicker.svelte';
   import Switch from '$cmp/inputs/Switch.svelte';
+  import Select from '$cmp/inputs/Select.svelte';
   import PitchSelect from '$cmp/inputs/PitchSelect.svelte';
   import HelpTooltip from '$cmp/utility/HelpTooltip.svelte';
   import DecoratedCard from '$cmp/layout/DecoratedCard.svelte';
@@ -62,6 +67,8 @@
     functions: {
       changeMidiVisibility: (override: boolean) => void;
       loadSong: (song: ComposedSong, options?: { preview?: boolean }) => void;
+      /** Select a layer of the song in the composer (a track row was picked). */
+      selectLayer?: (layer: number) => void;
     };
     /**
      * A file that already made the app open this screen (dropped on a menu that can't parse it):
@@ -96,6 +103,8 @@
   let keepAllDurations = $state(true);
   //notes a track's main layer cannot play go to extra layers (other scale / range extension)
   let auxiliaryLayers = $state(true);
+  /** What a folded extra layer does with a note whose pitch class its destination lacks. */
+  let fitPolicy = $state<MissingKeyPolicy>('keep');
   //out-of-range passages move by whole octaves as phrases, never note by note
   let phraseOctaves = $state(true);
   let warnedOfExperimental = false;
@@ -397,6 +406,7 @@
     for (const track of tracks) {
       track.numberOfAccidentals = 0;
       track.extraLayers = 0;
+      track.plannedLayers = [];
       track.unmappedHits = 0;
       track.outOfRange = 0;
       track.outOfRangeBounds.lower = 0;
@@ -472,11 +482,13 @@
     //the importer's bpm counts columns: four of them make a quarter note
     const quarterSeconds = bpm > 0 ? 240 / bpm : 1;
     let budget = BASE_LAYER_LIMIT - selectedTracks.length;
+    const nextMainLayerOf = new Map<number, number>();
     const add = (
       track: CustomTrack,
       instrument: InstrumentData,
       entry: Omit<MidiImportTrack, 'layer'>
     ) => {
+      if (!owners.includes(track)) nextMainLayerOf.set(track.originalIndex, layers.length);
       importTracks.push({ ...entry, layer: layers.length });
       layers.push(instrument);
       owners.push(track);
@@ -520,7 +532,8 @@
         extensions,
         maxAuxiliaryLayers: budget,
       });
-      for (const planned of plan) {
+      const kept = foldTrackLayers(track, plan, localOffset);
+      for (const planned of kept) {
         add(
           track,
           planned.role === 'main'
@@ -532,10 +545,37 @@
           }
         );
       }
-      track.extraLayers = plan.length - 1;
+      track.extraLayers = kept.length - 1;
       budget -= track.extraLayers;
     }
+    mainLayerOf = nextMainLayerOf;
     return { importTracks, layers, owners };
+  }
+
+  /** What a planned layer can play: the MIDI numbers that land on one of its keys. */
+  function playableMidi(instrumentName: string, layerPitch: Pitch, localOffset: number) {
+    const keys: number[] = [];
+    for (let midi = 0; midi <= 127; midi++) {
+      if (midiNoteFitsLayer(midi, instrumentName, layerPitch, localOffset)) keys.push(midi);
+    }
+    return keys;
+  }
+
+  /**
+   * THE USER'S FOLDS of a track's extra layers (track.layerMerges, see midiLayerPlan's
+   * foldPlannedLayers), and the list the track row shows them in (track.plannedLayers).
+   */
+  function foldTrackLayers(
+    track: CustomTrack,
+    plan: PlannedLayer[],
+    localOffset: number
+  ): PlannedLayer[] {
+    const folded = foldPlannedLayers(plan, track.layerMerges, {
+      keysOf: (layer) => playableMidi(layer.instrumentName, layer.pitch, localOffset),
+      policy: fitPolicy,
+    });
+    track.plannedLayers = folded.listing;
+    return folded.layers;
   }
 
   /** The track's layer settings on another scale and/or a range-extension instrument. */
@@ -593,14 +633,20 @@
   }
 
   function editTrack(index: number, update: Partial<CustomTrack>) {
+    if (applyTrackUpdate(index, update) && tracks.length > 0) convertMidi();
+  }
+
+  /** One field update on one track, without converting; false when it was refused. */
+  function applyTrackUpdate(index: number, update: Partial<CustomTrack>): boolean {
     const track = tracks[index];
-    if (!track) return;
+    if (!track) return false;
     if (
       update.selected === true &&
       !track.selected &&
       tracks.filter((candidate) => candidate.selected).length >= BASE_LAYER_LIMIT
     ) {
-      return warnTrackLimit();
+      warnTrackLimit();
+      return false;
     }
     const previousInstrument = track.instrument.name;
     Object.assign(track, update);
@@ -608,7 +654,39 @@
     //the octave fitted for the old one strands most notes on the new one - they would silently
     //vanish as out of range. A swap therefore re-fits the track to the instrument it now has.
     if (update.instrument && update.instrument.name !== previousInstrument) fitTrack(track);
-    if (tracks.length > 0) convertMidi();
+    return true;
+  }
+
+  /**
+   * WHICH TRACKS AN INSTRUMENT OR VOLUME EDIT REACHES (the row's "Apply to"), like the composer
+   * layer panel's scope: this track, or every track playing the same instrument right now.
+   */
+  let trackScope = $state<'track' | 'instrument'>('track');
+
+  /** One edit over the tracks in scope of `index`, converted ONCE. */
+  function editTracksInScope(index: number, change: (track: CustomTrack) => Partial<CustomTrack>) {
+    const source = tracks[index];
+    if (!source) return;
+    const indices =
+      trackScope === 'track'
+        ? [index]
+        : tracks
+            .map((track, i) => (track.instrument.name === source.instrument.name ? i : -1))
+            .filter((i) => i !== -1);
+    let changed = false;
+    for (const i of indices) changed = applyTrackUpdate(i, change(tracks[i])) || changed;
+    if (changed && tracks.length > 0) convertMidi();
+  }
+
+  /** The composer layer each track's main layer became in the last conversion, by file index. */
+  let mainLayerOf = new Map<number, number>();
+  let focusedTrack = $state(-1);
+
+  /** A track row was picked: select its main layer in the composer behind the importer. */
+  function focusTrack(index: number) {
+    focusedTrack = index;
+    const layer = mainLayerOf.get(tracks[index]?.originalIndex ?? -1);
+    if (layer !== undefined) functions.selectLayer?.(layer);
   }
 
   function suggestGlobalOffset() {
@@ -847,6 +925,28 @@
             styleOuter={midiInputsStyle}
           />
         </Row>
+        {#if auxiliaryLayers}
+          <Row justify="between" align="center">
+            <div class="row flex-centered" style="gap: 0.5rem">
+              <span>{t('composer:midi_parser.fold_missing')}:</span>
+              <HelpTooltip position="left" buttonStyle="width:1.2rem;height:1.2rem">
+                {t('composer:midi_parser.fold_missing_description')}
+              </HelpTooltip>
+            </div>
+            <Select
+              style={midiInputsStyle}
+              value={fitPolicy}
+              onchange={(e) => {
+                fitPolicy = e.currentTarget.value as MissingKeyPolicy;
+                if (tracks.length > 0) convertMidi();
+              }}
+            >
+              <option value="keep">{t('instrument_settings:fit_missing_keep')}</option>
+              <option value="nearest">{t('instrument_settings:fit_missing_nearest')}</option>
+              <option value="drop">{t('instrument_settings:fit_missing_drop')}</option>
+            </Select>
+          </Row>
+        {/if}
         <Row justify="between" align="center">
           <div class="row flex-centered" style="gap: 0.5rem">
             <span>{t('composer:midi_parser.phrase_octaves')}:</span>
@@ -867,7 +967,17 @@
         <legend>{t('composer:midi_parser.track_settings')}</legend>
         <Column style="width:100%">
           {#each tracks as track, i (i)}
-            <TrackInfo data={track} index={i} songPitch={pitch} onChange={editTrack} />
+            <TrackInfo
+              data={track}
+              index={i}
+              songPitch={pitch}
+              onChange={editTrack}
+              scope={trackScope}
+              onScopeChange={(scope) => (trackScope = scope)}
+              onChangeInScope={editTracksInScope}
+              focused={focusedTrack === i}
+              onFocus={focusTrack}
+            />
           {/each}
         </Column>
       </fieldset>

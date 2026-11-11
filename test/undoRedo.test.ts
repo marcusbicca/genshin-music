@@ -362,6 +362,23 @@ const ROUND_TRIPS: Row[] = [
         run: song => song.mergeTrackInto(1, 0),
     },
     {
+        name: 'mergeTrackInto',
+        //with a remap (the layer panel's "Fit into"): notes change number on the way, and one of
+        //them is dropped - the column's note array is replaced as well as fields rewritten
+        label: 'with notes refitted and one dropped',
+        setup: song => void song.addNoteAt(1, 1, idOf(2)),
+        run: song => song.mergeTrackInto(1, 0, (column, id) => (column === 1 ? null : id + 12)),
+    },
+    {
+        name: 'removeStrandedNotes',
+        //deletes notes from several columns of one track: every replaced array has to come back
+        setup: song => {
+            song.addNoteAt(0, 0, 1000)
+            song.addNoteAt(2, 0, 1001)
+        },
+        run: song => song.removeStrandedNotes(0),
+    },
+    {
         name: 'setInstrument',
         //a presentation-only edit: the roster array alone, no note moves at all
         label: 'same instrument and Basepoint',

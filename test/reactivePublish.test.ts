@@ -471,6 +471,22 @@ const CASES: PublishCase[] = [
         touches: 'none',
         run: song => song.mergeTrackInto(1, 1),
     },
+    {
+        name: 'removeStrandedNotes',
+        //a number no instrument voices, on track 0: the one note the clean-up deletes
+        setup: song => void song.addNoteAt(0, 0, 1000),
+        publishes: ['structure'],
+        touches: 'all',
+        run: song => song.removeStrandedNotes(0),
+    },
+    {
+        name: 'removeStrandedNotes',
+        //nothing to delete publishes nothing: the clean-up on a clean layer is not an edit
+        label: 'a layer with no stranded note',
+        publishes: [],
+        touches: 'none',
+        run: song => song.removeStrandedNotes(0),
+    },
     // ---- scalar fields -----------------------------------------------------------------------
     //ADR-0013 moved these three behind methods (nothing outside the class writes a song field any
     //more), so the table needs them as rows: each publishes exactly the field it writes, and the

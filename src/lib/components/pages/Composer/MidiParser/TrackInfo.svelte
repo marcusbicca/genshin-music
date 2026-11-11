@@ -1,8 +1,12 @@
 <script lang="ts">
   import type { Pitch } from '$lib/games/types';
-  import type { CustomTrack } from './midiTrackRoster';
+  import type { CustomTrack, PlannedExtraLayer } from './midiTrackRoster';
   import { ThemeProvider } from '$core/theme/ThemeProvider.svelte';
-  import { t } from '$i18n/binding.svelte';
+  import { t, tInstrument } from '$i18n/binding.svelte';
+  import Select from '$cmp/inputs/Select.svelte';
+  import AppButton from '$cmp/inputs/AppButton.svelte';
+  import IconMinus from '~icons/fa6-solid/minus';
+  import IconPlus from '~icons/fa6-solid/plus';
   import Row from '$cmp/layout/Row.svelte';
   import Column from '$cmp/layout/Column.svelte';
   import InstrumentSelect from '$cmp/inputs/InstrumentSelect.svelte';
@@ -17,13 +21,58 @@
     index,
     songPitch,
     onChange,
+    scope = 'track',
+    onScopeChange,
+    onChangeInScope,
+    focused = false,
+    onFocus,
   }: {
     data: CustomTrack;
     index: number;
     /** The import's base pitch, named on the option that follows it. */
     songPitch: Pitch;
     onChange: (index: number, data: Partial<CustomTrack>) => void;
+    /** Which tracks an instrument or volume edit reaches: this one, or all of its instrument. */
+    scope?: 'track' | 'instrument';
+    onScopeChange?: (scope: 'track' | 'instrument') => void;
+    /** The edit, described per track, for every track in `scope` (one conversion). */
+    onChangeInScope?: (index: number, change: (track: CustomTrack) => Partial<CustomTrack>) => void;
+    /** This row's track is the one selected in the composer behind the importer. */
+    focused?: boolean;
+    onFocus?: (index: number) => void;
   } = $props();
+
+  const VOLUME_PRESETS = [0, 25, 50, 75, 100];
+  const VOLUME_MAX = 125;
+  const clampVolume = (value: number) => Math.max(0, Math.min(VOLUME_MAX, Math.round(value)));
+
+  /** Instrument and volume edits go through the scope; without a scope handler, this track only. */
+  function changeInScope(change: (track: CustomTrack) => Partial<CustomTrack>) {
+    if (onChangeInScope) onChangeInScope(index, change);
+    else onChange(index, change(data));
+  }
+
+  /** Set every track in scope to one volume, or nudge each from its own (relative). */
+  function changeVolume(value: number, relative = false) {
+    changeInScope((track) => ({
+      instrument: track.instrument
+        .clone()
+        .set({ volume: clampVolume(relative ? track.instrument.volume + value : value) }),
+    }));
+  }
+
+  const layerLabel = (layer: { key: string; instrumentName: string; pitch: string }) =>
+    layer.key === 'main' ? data.name : `${tInstrument(layer.instrumentName)} (${layer.pitch})`;
+
+  function foldLayer(layer: PlannedExtraLayer, into: string) {
+    const layerMerges = { ...(data.layerMerges ?? {}) };
+    if (into === '') delete layerMerges[layer.key];
+    else layerMerges[layer.key] = into;
+    onChange(index, { layerMerges });
+  }
+
+  const foldStats = (layer: PlannedExtraLayer) =>
+    layer.options.find((option) => option.key === data.layerMerges?.[layer.key])?.stats;
 
   let dataShown = $state(false);
   const background = $derived(
@@ -53,7 +102,15 @@
         }}
         checked={data.selected}
       />
-      {`${data.name} (${data.track.notes.length}, ${data.track.instrument.family})`}
+      <button
+        type="button"
+        class="midi-track-name"
+        class:midi-track-focused={focused}
+        title={t('composer:midi_parser.select_layer')}
+        onclick={() => onFocus?.(index)}
+      >
+        {`${data.name} (${data.track.notes.length}, ${data.track.instrument.family})`}
+      </button>
       {#if data.selected && data.extraLayers > 0}
         <span class="midi-track-badge">
           {t('composer:midi_parser.extra_layers', { n: `${data.extraLayers}` })}
@@ -62,7 +119,8 @@
     </div>
     <div class="midi-track-center">
       <InstrumentSelect
-        onChange={(name) => onChange(index, { instrument: data.instrument.withInstrument(name) })}
+        onChange={(name) =>
+          changeInScope((track) => ({ instrument: track.instrument.withInstrument(name) }))}
         selected={data.instrument.name}
         style="margin-left:0.2rem;padding-right:1.5rem"
       />
@@ -137,6 +195,95 @@
         </option>
       </PitchSelect>
     </Row>
+    <Row align="center" justify="between">
+      <div>{t('instrument_settings:volume_applies_to')}</div>
+      <Select
+        style="width:12rem"
+        value={scope}
+        onchange={(e) => onScopeChange?.(e.currentTarget.value as 'track' | 'instrument')}
+      >
+        <option value="track">{t('composer:midi_parser.scope_track')}</option>
+        <option value="instrument">
+          {t('composer:midi_parser.scope_instrument', {
+            name: tInstrument(data.instrument.name),
+          })}
+        </option>
+      </Select>
+    </Row>
+    <Row align="center" justify="between">
+      <div>{t('instrument_settings:volume')}</div>
+      <div class="midi-track-volume">
+        <AppButton
+          class="midi-track-volume-step"
+          onclick={() => changeVolume(-1, true)}
+          ariaLabel={t('instrument_settings:volume_down')}
+        >
+          <IconMinus />
+        </AppButton>
+        <span class="midi-track-volume-value">{data.instrument.volume}%</span>
+        <AppButton
+          class="midi-track-volume-step"
+          onclick={() => changeVolume(1, true)}
+          ariaLabel={t('instrument_settings:volume_up')}
+        >
+          <IconPlus />
+        </AppButton>
+      </div>
+    </Row>
+    <Row align="center" justify="end" gap="0.3rem">
+      {#each VOLUME_PRESETS as preset (preset)}
+        <AppButton
+          class="midi-track-volume-preset"
+          toggled={data.instrument.volume === preset}
+          onclick={() => changeVolume(preset)}
+        >
+          {preset}%
+        </AppButton>
+      {/each}
+    </Row>
+    {#if data.plannedLayers?.length}
+      <!-- THE EXTRA LAYERS this track was given, each foldable into another layer of the track
+           with its notes moved onto keys that layer can play (layerMerge.ts) -->
+      <div class="midi-track-extra-title">{t('composer:midi_parser.extra_layers_title')}</div>
+      {#each data.plannedLayers as layer (layer.key)}
+        <Column gap="0.2rem" class="midi-track-extra">
+          <Row align="center" justify="between">
+            <div>
+              {layerLabel(layer)}
+              <span class="midi-track-extra-count">
+                {t('composer:midi_parser.extra_layer_notes', { n: `${layer.notes}` })}
+              </span>
+            </div>
+            <Select
+              style="width:12rem"
+              value={data.layerMerges?.[layer.key] ?? ''}
+              onchange={(e) => foldLayer(layer, e.currentTarget.value)}
+            >
+              <option value="">{t('composer:midi_parser.extra_layer_keep')}</option>
+              {#each layer.options as option (option.key)}
+                <option value={option.key}>
+                  {t('instrument_settings:fit_merge', { name: layerLabel(option) })}{option.key ===
+                  layer.suggested
+                    ? ` - ${t('instrument_settings:fit_suggested')}`
+                    : ''}
+                </option>
+              {/each}
+            </Select>
+          </Row>
+          {#if foldStats(layer)}
+            {@const stats = foldStats(layer)}
+            <div class="midi-track-extra-count">
+              {t('instrument_settings:fit_stats', {
+                kept: `${stats?.kept}`,
+                octave: `${stats?.octave}`,
+                pitch: `${stats?.pitch}`,
+                merged: `${stats?.merged}`,
+              })}
+            </div>
+          {/if}
+        </Column>
+      {/each}
+    {/if}
     {#if data.percussion}
       <Row align="center" justify="between">
         <div>{t('composer:midi_parser.drum_track')}</div>
@@ -157,6 +304,56 @@
 </Column>
 
 <style>
+  .midi-track-name {
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.3rem;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .midi-track-name:hover,
+  .midi-track-focused {
+    background-color: var(--secondary);
+    color: var(--secondary-text);
+  }
+
+  .midi-track-volume {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .midi-track-volume-value {
+    min-width: 3rem;
+    text-align: center;
+  }
+
+  :global(.midi-track-volume-step),
+  :global(.midi-track-volume-preset) {
+    padding: 0.25rem 0.5rem;
+    min-width: 0;
+  }
+
+  .midi-track-extra-title {
+    margin-top: 0.3rem;
+    font-weight: bold;
+  }
+
+  :global(.midi-track-extra) {
+    padding: 0.3rem;
+    border-radius: 0.2rem;
+    border: solid 0.1rem var(--secondary);
+  }
+
+  .midi-track-extra-count {
+    opacity: 0.75;
+    font-size: 0.85rem;
+  }
+
   .midi-track-badge {
     margin-left: 0.4rem;
     padding: 0.05rem 0.35rem;

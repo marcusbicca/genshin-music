@@ -56,9 +56,14 @@ describe('MIDI import panel policies', () => {
 describe('MIDI import instrument swaps', () => {
   it('re-fits a track to the instrument it is swapped to', () => {
     // registers differ per instrument: the octave fitted for the old one strands the notes on the new
+    const apply = midiParser.slice(midiParser.indexOf('function applyTrackUpdate'));
+    expect(apply).toContain('update.instrument.name !== previousInstrument');
+    expect(apply.slice(0, apply.indexOf('return true'))).toContain('fitTrack(track)');
+    //...and every edit path converts only after the update (and its re-fit) has been applied
     const edit = midiParser.slice(midiParser.indexOf('function editTrack'));
-    expect(edit).toContain('update.instrument.name !== previousInstrument');
-    expect(edit.indexOf('fitTrack(track)')).toBeLessThan(edit.indexOf('convertMidi()'));
+    expect(edit.indexOf('applyTrackUpdate(index, update)')).toBeLessThan(edit.indexOf('convertMidi()'));
+    const scoped = midiParser.slice(midiParser.indexOf('function editTracksInScope'));
+    expect(scoped.indexOf('applyTrackUpdate(')).toBeLessThan(scoped.indexOf('convertMidi()'));
   });
 });
 

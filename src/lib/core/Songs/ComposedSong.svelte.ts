@@ -1193,15 +1193,32 @@ export class ComposedSong extends Song<ComposedSong, SerializedComposedSong, 5> 
      * publishes nothing. A layer merged into ITSELF is the one worth naming: it would retarget
      * nothing and then delete the layer, which is a delete wearing a merge's prompt.
      */
-    mergeTrackInto(from: number, into: number) {
+    mergeTrackInto(
+        from: number,
+        into: number,
+        /**
+         * Optional new Note Number for each moved note (layerMerge.ts: the nearest key the
+         * destination can play), by column index and old number; null drops the note. Without it
+         * every note keeps its number - the plain Merge above / below.
+         */
+        remap?: (columnIndex: number, id: number) => number | null
+    ) {
         this.#asStep('mergeTrackInto', () => {
             if (from === into) return
             if (this.instruments[from] === undefined || this.instruments[into] === undefined) return
-            for (const column of this.#columns) {
-                for (const note of column.notes) {
-                    if (note.trackIndex === from) this.#writeNoteField(note, 'trackIndex', into)
+            this.#columns.forEach((column, columnIndex) => {
+                if (remap) {
+                    const kept = column.notes.filter(
+                        (note) => note.trackIndex !== from || remap(columnIndex, note.id) !== null
+                    )
+                    if (kept.length !== column.notes.length) this.#writeColumnNotes(column, kept)
                 }
-            }
+                for (const note of column.notes) {
+                    if (note.trackIndex !== from) continue
+                    if (remap) this.#writeNoteField(note, 'id', remap(columnIndex, note.id) as number)
+                    this.#writeNoteField(note, 'trackIndex', into)
+                }
+            })
             //keyed on the index the notes carry RIGHT NOW, before the reindex below moves it: two
             //notes are only comparable while both are stated in the same terms
             const merged = this.#mergeTrackDuplicates(into)
@@ -2136,16 +2153,41 @@ export class ComposedSong extends Song<ComposedSong, SerializedComposedSong, 5> 
      * track landing on a shorter instrument strands instead of being transposed, and the import
      * warns once when this is nonzero.
      */
-    countStrandedNotes(): number {
+    countStrandedNotes(trackIndex?: number): number {
         let stranded = 0
         for (const column of this.columns) {
             for (const note of column.notes) {
+                if (trackIndex !== undefined && note.trackIndex !== trackIndex) continue
                 const instrument = this.instruments[note.trackIndex]
                 const name = instrument?.name ?? INSTRUMENTS[0]
                 if (numberToButton(name, effectiveTrackPitch(instrument, this.pitch), note.id) === -1) stranded++
             }
         }
         return stranded
+    }
+    /**
+     * Delete the notes of one layer that layer cannot sound (countStrandedNotes' definition), as
+     * one Undo Step: the clean-up after a merge left the notes with no key there marked for review.
+     */
+    removeStrandedNotes(trackIndex: number) {
+        this.#asStep('removeStrandedNotes', () => {
+            const instrument = this.instruments[trackIndex]
+            if (instrument === undefined) return
+            const pitch = effectiveTrackPitch(instrument, this.pitch)
+            let removed = false
+            for (const column of this.#columns) {
+                const kept = column.notes.filter(
+                    (note) => note.trackIndex !== trackIndex || numberToButton(instrument.name, pitch, note.id) !== -1
+                )
+                if (kept.length !== column.notes.length) {
+                    this.#writeColumnNotes(column, kept)
+                    removed = true
+                }
+            }
+            if (!removed) return
+            this.#touchAllColumns()
+            this.#bumpStructure()
+        })
     }
     toMidi = (): Midi => {
         const song = this.toRecordedSong()

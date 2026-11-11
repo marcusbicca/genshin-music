@@ -1,5 +1,6 @@
 <script module lang="ts">
   import type { InstrumentNoteIcon } from '$core/Songs/SongClasses';
+  import type { MissingKeyPolicy } from '$core/Songs/layerMerge';
 
   function getReverbValue(reverb: boolean | null): 'Unset' | 'On' | 'Off' {
     if (reverb === null) return 'Unset';
@@ -37,6 +38,8 @@
   let volumeScope = $state<'layer' | 'instrument' | 'group'>('layer');
   //remembered between openings, like the volume scope: swap the layer's scale layers with it
   let swapWholeGroup = $state(false);
+  /** What a merge-with-fitting does with a note whose pitch class the destination lacks. */
+  let fitPolicy = $state<MissingKeyPolicy>('keep');
   const VOLUME_PRESETS = [0, 25, 50, 75, 100];
   const VOLUME_MAX = 125;
 
@@ -64,7 +67,8 @@
   import InstrumentSelect from '$cmp/inputs/InstrumentSelect.svelte';
   import Select from '$cmp/inputs/Select.svelte';
   import Switch from '$cmp/inputs/Switch.svelte';
-  import { layerGroups, autoLayerName, layersInScope } from '$core/Songs/layerNames';
+  import { layerGroups, autoLayerName, layersInScope, layerLabels } from '$core/Songs/layerNames';
+  import type { ComposedMergeOption } from '$core/Songs/composedLayerMerge';
   import HelpTooltip from '$cmp/utility/HelpTooltip.svelte';
   import DecoratedCard from '$cmp/layout/DecoratedCard.svelte';
   import IconPen from '~icons/fa6-solid/pen';
@@ -79,6 +83,7 @@
   import IconTrash from '~icons/fa6-solid/trash';
   import IconMinus from '~icons/fa6-solid/minus';
   import IconPlus from '~icons/fa6-solid/plus';
+  import IconCompress from '~icons/fa6-solid/compress';
 
   let {
     instrument,
@@ -88,6 +93,10 @@
     onClose,
     onChangePosition,
     onMerge,
+    mergeOptions,
+    onMergeFit,
+    strandedCount = 0,
+    onRemoveStranded,
     onEditGroupStart,
     onEditGroupEnd,
     currentLayer,
@@ -111,6 +120,19 @@
     onChangeMany?: (indices: number[], change: (layer: InstrumentData) => InstrumentData) => void;
     onChangePosition: (direction: 1 | -1) => void;
     onMerge: (direction: 1 | -1) => void;
+    /**
+     * Where this layer could be FOLDED with its notes moved onto keys the destination can play
+     * (composedLayerMerge.ts), its own group first, and the suggested destination. Called when the
+     * Arrange section is open, so a closed panel never walks the song.
+     */
+    mergeOptions?: (policy: MissingKeyPolicy) => {
+      options: ComposedMergeOption[];
+      suggested: ComposedMergeOption | undefined;
+    };
+    onMergeFit?: (option: ComposedMergeOption) => void;
+    /** How many notes of this layer it cannot sound, and the action deleting them. */
+    strandedCount?: number;
+    onRemoveStranded?: () => void;
     onDelete: () => void;
     onClose: () => void;
     /**
@@ -239,6 +261,24 @@
     }
     onChangeMany(groupTargets, (layer) => layer.withInstrument(name));
   }
+
+  const labels = $derived(layerLabels(instruments, songPitch, (name) => tInstrument(name)));
+  /** The user's pick of destination; null = the suggestion. Reset when another layer is shown. */
+  let fitChoice = $state<number | null>(null);
+  $effect(() => {
+    void currentLayer;
+    fitChoice = null;
+  });
+  const fit = $derived.by(() => {
+    //read so a roster change or another layer recomputes the preview
+    void instruments;
+    void currentLayer;
+    if (!openSections.arrange || !mergeOptions || instruments.length < 2) return null;
+    return mergeOptions(fitPolicy);
+  });
+  const fitSelected = $derived(
+    fit?.options.find((option) => option.into === fitChoice) ?? fit?.suggested
+  );
 
   const clampVolume = (value: number) => Math.max(0, Math.min(VOLUME_MAX, Math.round(value)));
 
@@ -625,6 +665,80 @@
                   </AppButton>
                 </div>
               </div>
+              {#if fit && fitSelected}
+                <!-- MERGE WITH FITTING: unlike the pair above, every note moves to a key the
+                     destination can PLAY (the same note an octave away when it has one), so a layer
+                     the importer added only to reach far notes can go without losing them. -->
+                <div class="settings-row">
+                  <span class="settings-label-with-help">
+                    {t('instrument_settings:fit_into')}
+                    <HelpTooltip buttonStyle="width:1.1rem;height:1.1rem" width={14}>
+                      {t('instrument_settings:fit_into_description')}
+                    </HelpTooltip>
+                  </span>
+                  <Select
+                    style="padding:0.3rem;width:var(--settings-control-width)"
+                    value={fitSelected.into}
+                    {disabled}
+                    onchange={(e) => (fitChoice = Number(e.currentTarget.value))}
+                  >
+                    {#each fit.options as option (option.into)}
+                      <option value={option.into}>
+                        {labels[option.into]}{option.into === fit.suggested?.into
+                          ? ` - ${t('instrument_settings:fit_suggested')}`
+                          : ''}
+                      </option>
+                    {/each}
+                  </Select>
+                </div>
+                <div class="settings-row">
+                  <span>{t('instrument_settings:fit_missing')}</span>
+                  <Select
+                    style="padding:0.3rem;width:var(--settings-control-width)"
+                    value={fitPolicy}
+                    {disabled}
+                    onchange={(e) => (fitPolicy = e.currentTarget.value as MissingKeyPolicy)}
+                  >
+                    <option value="keep">{t('instrument_settings:fit_missing_keep')}</option>
+                    <option value="nearest">{t('instrument_settings:fit_missing_nearest')}</option>
+                    <option value="drop">{t('instrument_settings:fit_missing_drop')}</option>
+                  </Select>
+                </div>
+                <div class="settings-volume-note">
+                  {t('instrument_settings:fit_stats', {
+                    kept: `${fitSelected.plan.stats.kept}`,
+                    octave: `${fitSelected.plan.stats.octave}`,
+                    pitch: `${fitSelected.plan.stats.pitch}`,
+                    merged: `${fitSelected.plan.stats.merged}`,
+                  })}
+                </div>
+                <div class="settings-row">
+                  <span></span>
+                  <AppButton
+                    onclick={() => onMergeFit?.(fitSelected)}
+                    {disabled}
+                    class="settings-arrange-button flex-centered"
+                  >
+                    <IconCompress />
+                    {t('instrument_settings:fit_merge', { name: labels[fitSelected.into] })}
+                  </AppButton>
+                </div>
+              {/if}
+              {#if strandedCount > 0}
+                <!-- the notes this layer cannot sound (dimmed, with a sharp/flat hint on the
+                     canvas): what a merge that KEPT missing-key notes leaves to review -->
+                <div class="settings-row">
+                  <span>{t('instrument_settings:stranded_count', { n: `${strandedCount}` })}</span>
+                  <AppButton
+                    onclick={() => onRemoveStranded?.()}
+                    {disabled}
+                    class="settings-arrange-button flex-centered"
+                  >
+                    <IconTrash />
+                    {t('instrument_settings:stranded_remove')}
+                  </AppButton>
+                </div>
+              {/if}
             </div>
           {/if}
         </section>
@@ -828,6 +942,12 @@
     min-width: 0;
     padding: 0.3rem 0;
     font-size: 0.75rem;
+  }
+
+  .settings-label-with-help {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
   }
 
   .settings-volume-note {

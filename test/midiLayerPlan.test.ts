@@ -8,6 +8,7 @@ import {
     hasPercussionMap,
     mapPercussionNotes,
     planTrackLayers,
+    foldPlannedLayers,
     rangeExtensionsOf,
     type PlanNote,
 } from '../src/lib/core/Songs/midiLayerPlan'
@@ -229,4 +230,36 @@ describe('mergeSectionRange', () => {
         expect(mergeSectionRange(sections, 1, 99)?.end).toBe(80)
         expect(mergeSectionRange(sections, 5, 6)).toBeUndefined()
     })
+})
+
+describe('foldPlannedLayers', () => {
+    const main = {instrumentName: 'Piano', pitch: 'C' as const, role: 'main' as const, notes: [
+        {midi: 60, time: 0, duration: 0.5}, {midi: 64, time: 0.5, duration: 0.5}]}
+    const high = {instrumentName: 'Piano', pitch: 'C' as const, role: 'auxiliary' as const, notes: [
+        {midi: 84, time: 1, duration: 0.5}, {midi: 61, time: 1.5, duration: 0.5}]}
+    const keysOf = () => [60, 62, 64, 65, 67, 69, 71, 72]
+    it('lists every extra layer with a suggestion and leaves the plan alone without folds', () => {
+        const {layers, listing} = foldPlannedLayers([main, high], {}, {keysOf, policy: 'keep'})
+        expect(layers).toHaveLength(2)
+        expect(listing).toHaveLength(1)
+        expect(listing[0].suggested).toBe('main')
+        expect(listing[0].options[0].stats).toEqual({kept: 0, octave: 1, pitch: 1, merged: 0})
+    })
+    it('folds a layer into its destination with the chosen policy', () => {
+        const key = listingKey()
+        const keep = foldPlannedLayers([main, high], {[key]: 'main'}, {keysOf, policy: 'keep'})
+        expect(keep.layers).toHaveLength(1)
+        expect(keep.layers[0].notes.map((n) => n.midi)).toEqual([60, 64, 72, 61])
+        const drop = foldPlannedLayers([main, high], {[key]: 'main'}, {keysOf, policy: 'drop'})
+        expect(drop.layers[0].notes.map((n) => n.midi)).toEqual([60, 64, 72])
+        //the plan's own arrays are untouched
+        expect(main.notes).toHaveLength(2)
+    })
+    it('ignores a fold whose layer the plan no longer has', () => {
+        const {layers} = foldPlannedLayers([main, high], {'Flute@D': 'main'}, {keysOf, policy: 'keep'})
+        expect(layers).toHaveLength(2)
+    })
+    function listingKey() {
+        return foldPlannedLayers([main, high], {}, {keysOf, policy: 'keep'}).listing[0].key
+    }
 })

@@ -934,6 +934,16 @@ export const i18n_en = {
       phrase_octaves: 'Move whole phrases between octaves',
       phrase_octaves_description:
         "When part of a track is out of the instrument's range, the whole phrase (notes up to a rest of a quarter note) moves up or down an octave, so a melody never jumps octave in the middle of a phrase.",
+      // folding an extra layer into another one of its track (layerMerge.ts)
+      fold_missing: 'Notes with no key where folded',
+      fold_missing_description:
+        'When an extra layer is folded into another layer of its track, what happens to notes that layer has no key for. Kept notes show dimmed in the composer and can be deleted from the layer panel.',
+      select_layer: 'Select this layer in the composer',
+      scope_track: 'This track',
+      scope_instrument: 'Every {{name}} track',
+      extra_layers_title: 'Extra layers',
+      extra_layer_notes: '{{n}} notes',
+      extra_layer_keep: 'Keep separate',
       extra_layers: '+{{n}} layers',
       drum_track: 'Drum track (mapped to the instrument keys)',
       unmapped_drum_hits: '{{n}} hits with no key',
@@ -990,6 +1000,21 @@ export const i18n_en = {
     position_down: 'Down',
     // "Merge into: Above | Below" folds this layer into the layer above or below it
     merge_into: 'Merge into',
+    // merging with every note moved onto a key the destination can play (layerMerge.ts)
+    fit_into: 'Fit into',
+    fit_into_description:
+      'Moves this layer into another one and removes it. Each note goes to the nearest key the other layer can play: the same note in another octave when it has it.',
+    fit_suggested: 'suggested',
+    fit_missing: 'Notes with no key there',
+    fit_missing_keep: 'Keep, marked',
+    fit_missing_nearest: 'Move to nearest note',
+    fit_missing_drop: 'Delete',
+    fit_stats:
+      '{{kept}} stay, {{octave}} change octave, {{pitch}} have no key there, {{merged}} join notes already there',
+    fit_merge: 'Fit into {{name}}',
+    // notes the layer cannot sound: drawn dimmed with a sharp/flat hint
+    stranded_count: '{{n}} notes this layer cannot play',
+    stranded_remove: 'Delete them',
     merge_above: 'Above',
     merge_below: 'Below',
     delete_layer: 'Delete layer',

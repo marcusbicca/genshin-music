@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { ComposedMergeOption } from '$core/Songs/composedLayerMerge';
+  import type { MissingKeyPolicy } from '$core/Songs/layerMerge';
   import type { Pitch } from '$lib/games/types';
   import { ThemeProvider } from '$core/theme/ThemeProvider.svelte';
   import { InstrumentData } from '$core/Songs/SongClasses';
@@ -18,6 +20,10 @@
     onInstrumentAdd,
     onChangePosition,
     onMerge,
+    mergeOptions,
+    onMergeFit,
+    strandedCount,
+    onRemoveStranded,
     onEditGroupStart,
     onEditGroupEnd,
     onSettingsOpenChange,
@@ -43,6 +49,14 @@
     onInstrumentAdd: () => void;
     onChangePosition: (direction: 1 | -1) => void;
     onMerge: (direction: 1 | -1) => void;
+    /** See InstrumentSettingsPopup: the fold-with-fitting destinations of the open layer. */
+    mergeOptions?: (policy: MissingKeyPolicy) => {
+      options: ComposedMergeOption[];
+      suggested: ComposedMergeOption | undefined;
+    };
+    onMergeFit?: (option: ComposedMergeOption) => void;
+    strandedCount?: (layer: number) => number;
+    onRemoveStranded?: (layer: number) => void;
     /**
      * Forwarded straight to the settings popup, whose continuous inputs (the volume drag, the
      * alias field) emit one `onInstrumentChange` per tick — see its own group bookkeeping.
@@ -113,6 +127,14 @@
       onMerge(direction);
       //the panel is showing a layer that may no longer exist (a merge removes one), and its own
       //`instrument` prop is read by index - the same close the delete path does, for the same reason
+      setNotEditing();
+    }}
+    {mergeOptions}
+    strandedCount={strandedCount?.(selected) ?? 0}
+    onRemoveStranded={() => onRemoveStranded?.(selected)}
+    onMergeFit={(option) => {
+      onMergeFit?.(option);
+      //a merge removes the open layer: close for the same reason as the plain merge above
       setNotEditing();
     }}
     {onEditGroupStart}

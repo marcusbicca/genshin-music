@@ -1,3 +1,4 @@
+import type { FoldListing } from '$core/Songs/midiLayerPlan';
 import type { Track } from '@tonejs/midi';
 import { InstrumentData } from '$core/Songs/SongClasses';
 import { BASE_LAYER_LIMIT, PITCHES } from '$core/sharedConfig';
@@ -24,6 +25,14 @@ export type CustomTrack = {
   percussion: boolean;
   /** Auxiliary layers the last conversion gave this track (accidentals, range extensions). */
   extraLayers: number;
+  /**
+   * The auxiliary layers the last conversion PLANNED for this track, merged ones included, each
+   * with what folding it into another layer of the track would do (layerMerge.ts). For the row's
+   * list of extra layers; rebuilt by every conversion.
+   */
+  plannedLayers: PlannedExtraLayer[];
+  /** The user's folds: extra layer key -> destination key ('main' or another extra layer). */
+  layerMerges: Record<string, string>;
   /** Drum hits the chosen instrument's percussion map has no button for. */
   unmappedHits: number;
   outOfRangeBounds: {
@@ -31,6 +40,9 @@ export type CustomTrack = {
     upper: number;
   };
 };
+
+/** One extra layer of a track, as the importer's track row lists it (midiLayerPlan.ts). */
+export type PlannedExtraLayer = FoldListing;
 
 export type MidiTrackName = {
   rawName: string;
@@ -122,6 +134,8 @@ export function buildMidiTrackRoster(
         maxScaling: 0,
         percussion: isPercussionTrack(track),
         extraLayers: 0,
+        plannedLayers: [],
+        layerMerges: {},
         unmappedHits: 0,
         outOfRangeBounds: {
           lower: 0,

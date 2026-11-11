@@ -13,6 +13,7 @@
 </script>
 
 <script lang="ts">
+  import { composedMergeOptions, type ComposedMergeOption } from '$core/Songs/composedLayerMerge';
   import { documentTitle } from '$lib/seo';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
@@ -923,6 +924,27 @@
     if (direction === -1) layer = target;
     // the note-edit funnel, as every path that changes what playback would sound: the ADR-0006
     // resync plus the autosave cadence
+    handleAutoSave();
+  }
+
+  /**
+   * The layer panel's "Fit into": fold the selected layer into the chosen one, each note moved to
+   * the nearest key the destination can play (composedLayerMerge.ts). One Undo Step, like the plain
+   * merge; the selection lands on the destination, whose index shifts down when it sat above.
+   */
+  function mergeLayerFitting(option: ComposedMergeOption) {
+    if (songLocked) return;
+    const from = layer;
+    song.mergeTrackInto(from, option.into, option.remap);
+    syncInstruments(song);
+    layer = option.into > from ? option.into - 1 : option.into;
+    handleAutoSave();
+  }
+
+  /** The layer panel's clean-up: delete the notes this layer cannot sound. One Undo Step. */
+  function removeStrandedNotes(index: number) {
+    if (songLocked) return;
+    song.removeStrandedNotes(index);
     handleAutoSave();
   }
 
@@ -2871,6 +2893,9 @@
     functions={{
       changeMidiVisibility,
       loadSong,
+      selectLayer: (index: number) => {
+        if (index >= 0 && index < song.instruments.length) changeLayer(index);
+      },
     }}
   />
 {/if}
@@ -2959,6 +2984,15 @@
       onInstrumentDelete={removeInstrument}
       onChangePosition={switchLayerPosition}
       onMerge={mergeLayer}
+      mergeOptions={(policy) =>
+        composedMergeOptions(song.columns, song.instruments, song.pitch, layer, policy)}
+      onMergeFit={mergeLayerFitting}
+      strandedCount={(index) => {
+        //read so the count follows note edits: the song's columns are not reactive themselves
+        void song.structureVersion;
+        return song.countStrandedNotes(index);
+      }}
+      onRemoveStranded={removeStrandedNotes}
       onEditGroupStart={beginInstrumentEditGroup}
       onEditGroupEnd={endInstrumentEditGroup}
       songPitch={song.pitch}

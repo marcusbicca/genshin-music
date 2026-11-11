@@ -19,6 +19,7 @@
 import {INSTRUMENTS, INSTRUMENTS_DATA, type Pitch} from '$core/legacyConfig'
 import {midiNoteFitsLayer} from './midiImport'
 import {basepointOffset, buttonToNumber, getSoundingTable} from './noteIds'
+import {planLayerMerge, suggestMergeTarget, type MergeStats, type MissingKeyPolicy} from './layerMerge'
 
 export type PlanNote = {midi: number; time: number; duration: number}
 
@@ -243,4 +244,105 @@ export function planTrackLayers(notes: readonly PlanNote[], options: TrackLayerP
     // toggles decide its fate exactly as they did before auxiliary layers existed
     main.notes.push(...remaining)
     return layers
+}
+
+// ---- 4. folding extra layers ----------------------------------------------------------------
+
+/** One extra layer of a track as the importer's track row lists it, with its fold options. */
+export type FoldListing = {
+    /** Stable while the plan holds: instrument and scale ('Piano@Eb'); 'main' is the track's own. */
+    key: string
+    instrumentName: string
+    pitch: string
+    notes: number
+    options: {key: string; instrumentName: string; pitch: string; stats: MergeStats}[]
+    suggested: string | null
+}
+
+export function plannedLayerKey(layer: PlannedLayer): string {
+    return layer.role === 'main' ? 'main' : `${layer.instrumentName}@${layer.pitch}`
+}
+
+/**
+ * THE USER'S FOLDS of a track's extra layers: `merges` maps an extra layer's key to the key of the
+ * layer it goes into. Each folded layer's notes move onto the keys its destination can play
+ * (layerMerge.ts) - the same note in another octave when it has it, else as `policy` says - and
+ * the layer is not created. Folds are applied in plan order and follow a chain (a into b, b into
+ * the main layer) to wherever it ends; a key the plan no longer has is ignored.
+ *
+ * `keysOf` answers what a layer can play, as MIDI numbers of this track. The listing is built
+ * from the plan as the planner made it, so its options do not depend on the folds chosen.
+ */
+export function foldPlannedLayers(
+    plan: readonly PlannedLayer[],
+    merges: Readonly<Record<string, string>>,
+    options: {keysOf: (layer: PlannedLayer) => readonly number[]; policy: MissingKeyPolicy}
+): {layers: PlannedLayer[]; listing: FoldListing[]} {
+    const keysCache = new Map<string, readonly number[]>()
+    const keysOf = (layer: PlannedLayer) => {
+        const key = plannedLayerKey(layer)
+        if (!keysCache.has(key)) keysCache.set(key, options.keysOf(layer))
+        return keysCache.get(key) as readonly number[]
+    }
+    const slot = (time: number) => Math.round(time * 1000)
+    const planInto = (source: PlannedLayer, target: PlannedLayer) => {
+        const occupied = new Set(target.notes.map((note) => `${slot(note.time)}:${note.midi}`))
+        return planLayerMerge(
+            source.notes.map((note) => ({slot: slot(note.time), value: note.midi})),
+            keysOf(target),
+            (at, value) => occupied.has(`${at}:${value}`),
+            options.policy
+        )
+    }
+    const listing = plan
+        .filter((layer) => layer.role === 'auxiliary')
+        .map((layer) => {
+            const candidates = plan
+                .filter((other) => other !== layer)
+                .map((other) => ({
+                    key: plannedLayerKey(other),
+                    instrumentName: other.instrumentName,
+                    pitch: other.pitch as string,
+                    plan: planInto(layer, other),
+                }))
+            const suggested = suggestMergeTarget(candidates)
+            return {
+                key: plannedLayerKey(layer),
+                instrumentName: layer.instrumentName,
+                pitch: layer.pitch as string,
+                notes: layer.notes.length,
+                options: candidates.map(({plan: merge, ...rest}) => ({...rest, stats: merge.stats})),
+                suggested: suggested?.key ?? null,
+            }
+        })
+    //the folds themselves, on copies: the plan's note arrays are the planner's
+    const layers = plan.map((layer) => ({...layer, notes: [...layer.notes]}))
+    const byKey = new Map(layers.map((layer) => [plannedLayerKey(layer), layer]))
+    const folded = new Set<string>()
+    const destination = (key: string) => {
+        const seen = new Set<string>()
+        let current = key
+        while (folded.has(current) && !seen.has(current)) {
+            seen.add(current)
+            current = merges[current]
+        }
+        return byKey.get(current)
+    }
+    for (const layer of layers) {
+        const key = plannedLayerKey(layer)
+        const into = merges[key]
+        if (layer.role === 'main' || !into || !byKey.has(into)) continue
+        folded.add(key)
+        const target = destination(into)
+        if (!target || target === layer) {
+            folded.delete(key)
+            continue
+        }
+        const merge = planInto(layer, target)
+        layer.notes.forEach((note, i) => {
+            const value = merge.values[i]
+            if (value !== null) target.notes.push({...note, midi: value})
+        })
+    }
+    return {layers: layers.filter((layer) => !folded.has(plannedLayerKey(layer))), listing}
 }
