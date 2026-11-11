@@ -294,11 +294,23 @@ export function foldPlannedLayers(
             options.policy
         )
     }
+    //whether following the chosen folds from `key` comes back to `to`: such a destination would
+    //close a loop (a into b, b into a), so it is not offered - nor suggested - to `to`
+    const reaches = (key: string, to: string) => {
+        const seen = new Set<string>()
+        let current: string | undefined = key
+        while (current !== undefined && !seen.has(current)) {
+            if (current === to) return true
+            seen.add(current)
+            current = merges[current]
+        }
+        return false
+    }
     const listing = plan
         .filter((layer) => layer.role === 'auxiliary')
         .map((layer) => {
             const candidates = plan
-                .filter((other) => other !== layer)
+                .filter((other) => other !== layer && !reaches(plannedLayerKey(other), plannedLayerKey(layer)))
                 .map((other) => ({
                     key: plannedLayerKey(other),
                     instrumentName: other.instrumentName,
@@ -334,7 +346,9 @@ export function foldPlannedLayers(
         if (layer.role === 'main' || !into || !byKey.has(into)) continue
         folded.add(key)
         const target = destination(into)
-        if (!target || target === layer) {
+        //a chain that comes back (a into b, b into a) ends on a layer that is itself folded away:
+        //pouring the notes there would drop them with it, so this fold is refused and the layer kept
+        if (!target || target === layer || folded.has(plannedLayerKey(target))) {
             folded.delete(key)
             continue
         }

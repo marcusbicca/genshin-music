@@ -775,7 +775,7 @@
     "fit_missing_keep": "Manter, marcadas",
     "fit_missing_nearest": "Mover para a nota mais próxima",
     "fit_missing_drop": "Apagar",
-    "fit_stats": "{{kept}} ficam, {{octave}} mudam de oitava, {{pitch}} sem tecla lá, {{merged}} se juntam a notas que já existem",
+    "fit_stats": "{{kept}} ficam, {{octave}} mudam de oitava, {{pitch}} sem tecla lá, {{merged}} somem por já existirem lá",
     "fit_merge": "Encaixar em {{name}}",
     "stranded_count": "{{n}} notas que esta camada não toca",
     "stranded_remove": "Apagar",

@@ -19,19 +19,42 @@ export type FittedNote = { value: number; move: FitMove }
  * The key of `keys` (the destination's playable values, any order) a note of `value` lands on:
  * itself when playable; else the same pitch class at the nearest octave; else the nearest key at
  * all. Ties go to the lower key, so the answer never depends on the order `keys` came in.
+ *
+ * `isFree(key)` says whether the destination is still free there (no note at that moment): a moved
+ * note takes the nearest FREE candidate of its kind, and lands on a taken one only when every one is
+ * taken. Without it an octave doubling - G5 with G6 above it, the G6 on a layer of its own because
+ * the destination stops at B5 - folded straight onto the G5 already there and vanished; it now goes
+ * to G4, and the chord keeps two Gs. A note that is ALREADY playable stays put either way: landing
+ * on its own twin is a true duplicate.
+ *
  * Null when `keys` is empty (nothing can be played there).
  */
-export function fitToKeys(value: number, keys: readonly number[]): FittedNote | null {
+export function fitToKeys(
+    value: number,
+    keys: readonly number[],
+    isFree: (key: number) => boolean = () => true
+): FittedNote | null {
     if (keys.length === 0) return null
     if (keys.includes(value)) return { value, move: 'kept' }
-    const closest = (candidates: readonly number[]) =>
-        candidates.reduce((best, key) => {
-            const d = Math.abs(key - value), bd = Math.abs(best - value)
-            return d < bd || (d === bd && key < best) ? key : best
-        })
+    const byDistance = (candidates: readonly number[]) =>
+        [...candidates].sort((a, b) => Math.abs(a - value) - Math.abs(b - value) || a - b)
+    const pick = (candidates: readonly number[]) => {
+        const ordered = byDistance(candidates)
+        return ordered.find(isFree) ?? ordered[0]
+    }
     const sameClass = keys.filter((key) => (((key - value) % 12) + 12) % 12 === 0)
-    if (sameClass.length > 0) return { value: closest(sameClass), move: 'octave' }
-    return { value: closest(keys), move: 'pitch' }
+    if (sameClass.length > 0) return { value: pick(sameClass), move: 'octave' }
+    return { value: pick(keys), move: 'pitch' }
+}
+
+/** `value` moved by whole octaves to the nearest place inside [lowest key, highest key]. */
+function intoRangeByOctaves(value: number, keys: readonly number[]): number {
+    const low = Math.min(...keys), high = Math.max(...keys)
+    let moved = value
+    while (moved > high) moved -= 12
+    while (moved < low) moved += 12
+    //a range narrower than an octave may have no room for this pitch class at all
+    return moved > high ? value : moved
 }
 
 /** One note of the source layer: where it sits in time (a column, a tick) and its value. */
@@ -44,7 +67,10 @@ export type MergeStats = {
     octave: number
     /** Moved to another note: the destination has no key of this pitch class. */
     pitch: number
-    /** Landed on a note the destination (or another moved note) already has at that slot. */
+    /**
+     * Landed on a note the destination (or another moved note) already has at that slot, every
+     * free octave being taken: these notes disappear into the one already there.
+     */
     merged: number
 }
 
@@ -85,7 +111,11 @@ export function planLayerMerge(
     const landed = new Set<string>()
     let cost = 0
     const values = notes.map((note) => {
-        const fit = fitToKeys(note.value, keys)
+        const fit = fitToKeys(
+            note.value,
+            keys,
+            (key) => !occupied(note.slot, key) && !landed.has(`${note.slot}:${key}`)
+        )
         if (fit === null) {
             stats.pitch++
             cost += PITCH_COST * 2
@@ -98,7 +128,10 @@ export function planLayerMerge(
             //a loss whatever is done with the note, so the suggestion stays the same
             cost += PITCH_COST + Math.abs(fit.value - note.value)
             if (policy === 'drop') return null
-            if (policy === 'keep') return note.value
+            //kept as it is, but inside the destination's range: a note past it would be thrown away
+            //as out of range by the importer, or sit off the composer's grid - the octave is the
+            //one thing that may move, so the note stays itself and stays visible
+            if (policy === 'keep') return intoRangeByOctaves(note.value, keys)
         }
         const key = `${note.slot}:${fit.value}`
         if (occupied(note.slot, fit.value) || landed.has(key)) {

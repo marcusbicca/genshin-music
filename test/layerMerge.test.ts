@@ -27,11 +27,16 @@ describe('planLayerMerge', () => {
       { slot: 0, value: 64 }, // kept
       { slot: 0, value: 76 + 12 }, // octave -> 76
       { slot: 1, value: 66 }, // pitch -> 65
-      { slot: 2, value: 72 + 12 }, // octave -> 72, already there
+      { slot: 2, value: 72 + 12 }, // octave: 72 is taken at that moment, so the free 60
     ];
     const plan = planLayerMerge(notes, cMajor, (slot, value) => slot === 2 && value === 72);
-    expect(plan.values).toEqual([64, 76, 65, 72]);
-    expect(plan.stats).toEqual({ kept: 1, octave: 2, pitch: 1, merged: 1 });
+    expect(plan.values).toEqual([64, 76, 65, 60]);
+    expect(plan.stats).toEqual({ kept: 1, octave: 2, pitch: 1, merged: 0 });
+  });
+  it('merges onto a taken key only when every octave of the note is taken', () => {
+    const plan = planLayerMerge([{ slot: 0, value: 84 }], cMajor, (_, value) => value % 12 === 0);
+    expect(plan.values).toEqual([72]);
+    expect(plan.stats.merged).toBe(1);
   });
   it('counts two source notes landing on the same key as a merge', () => {
     const plan = planLayerMerge(
@@ -58,5 +63,13 @@ describe('suggestMergeTarget', () => {
     const twin = { name: 'twin', plan: withFSharp.plan };
     expect(suggestMergeTarget([withFSharp, twin])?.name).toBe('G major');
     expect(suggestMergeTarget([])).toBeUndefined();
+  });
+});
+
+describe('keeping a note with no key', () => {
+  it('moves it by octaves into the destination range, never changing the note', () => {
+    const plan = planLayerMerge([{ slot: 0, value: 66 + 24 }], [60, 62, 64, 65, 67, 69, 71, 72], () => false, 'keep');
+    expect(plan.values).toEqual([66]);
+    expect(plan.stats.pitch).toBe(1);
   });
 });

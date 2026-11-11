@@ -263,3 +263,36 @@ describe('foldPlannedLayers', () => {
         return foldPlannedLayers([main, high], {}, {keysOf, policy: 'keep'}).listing[0].key
     }
 })
+
+describe('foldPlannedLayers never loses notes', () => {
+    const main = {instrumentName: 'Piano', pitch: 'C' as const, role: 'main' as const, notes: [{midi: 60, time: 0, duration: 0.5}]}
+    const a = {instrumentName: 'Piano', pitch: 'D' as const, role: 'auxiliary' as const, notes: [{midi: 61, time: 1, duration: 0.5}, {midi: 66, time: 2, duration: 0.5}]}
+    const b = {instrumentName: 'Piano', pitch: 'Eb' as const, role: 'auxiliary' as const, notes: [{midi: 63, time: 3, duration: 0.5}]}
+    const keysOf = (layer: {pitch: string}) => (layer.pitch === 'C' ? [60, 62, 64] : layer.pitch === 'D' ? [61, 62, 66] : [63, 65, 67])
+    const count = (layers: {notes: unknown[]}[]) => layers.reduce((n, layer) => n + layer.notes.length, 0)
+    it('two layers folded into each other keep every note', () => {
+        const merges = {'Piano@D': 'Piano@Eb', 'Piano@Eb': 'Piano@D'}
+        const {layers} = foldPlannedLayers([main, a, b], merges, {keysOf, policy: 'keep'})
+        expect(count(layers)).toBe(4)
+        expect(layers.length).toBe(2)
+    })
+    it('a chain into the main layer keeps every note', () => {
+        const merges = {'Piano@D': 'Piano@Eb', 'Piano@Eb': 'main'}
+        const {layers} = foldPlannedLayers([main, a, b], merges, {keysOf, policy: 'keep'})
+        expect(layers).toHaveLength(1)
+        expect(count(layers)).toBe(4)
+    })
+})
+
+describe('foldPlannedLayers offers no loop', () => {
+    const main = {instrumentName: 'Piano', pitch: 'C' as const, role: 'main' as const, notes: [{midi: 60, time: 0, duration: 0.5}]}
+    const a = {instrumentName: 'Piano', pitch: 'D' as const, role: 'auxiliary' as const, notes: [{midi: 62, time: 1, duration: 0.5}]}
+    const b = {instrumentName: 'Piano', pitch: 'Eb' as const, role: 'auxiliary' as const, notes: [{midi: 63, time: 3, duration: 0.5}]}
+    const keysOf = () => [60, 62, 63, 64]
+    it('a layer folded into another is not offered as that one\'s destination', () => {
+        const {listing} = foldPlannedLayers([main, a, b], {'Piano@D': 'Piano@Eb'}, {keysOf, policy: 'keep'})
+        const forB = listing.find((l) => l.key === 'Piano@Eb')!
+        expect(forB.options.map((o) => o.key)).toEqual(['main'])
+        expect(forB.suggested).toBe('main')
+    })
+})

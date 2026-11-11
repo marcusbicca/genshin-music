@@ -1010,7 +1010,7 @@ export const i18n_en = {
     fit_missing_nearest: 'Move to nearest note',
     fit_missing_drop: 'Delete',
     fit_stats:
-      '{{kept}} stay, {{octave}} change octave, {{pitch}} have no key there, {{merged}} join notes already there',
+      '{{kept}} stay, {{octave}} change octave, {{pitch}} have no key there, {{merged}} disappear into the same note already there',
     fit_merge: 'Fit into {{name}}',
     // notes the layer cannot sound: drawn dimmed with a sharp/flat hint
     stranded_count: '{{n}} notes this layer cannot play',

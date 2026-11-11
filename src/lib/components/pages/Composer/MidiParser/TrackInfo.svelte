@@ -255,7 +255,7 @@
               </span>
             </div>
             <Select
-              style="width:12rem"
+              style="width:17rem;max-width:60vw"
               value={data.layerMerges?.[layer.key] ?? ''}
               onchange={(e) => foldLayer(layer, e.currentTarget.value)}
             >
