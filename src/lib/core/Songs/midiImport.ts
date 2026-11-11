@@ -156,6 +156,21 @@ export function midiNoteFitsLayer(
 }
 
 /**
+ * The Note Number ONE file note gets on a layer - what the conversion stores, so two file notes
+ * that land on one number in one column are one note there (a stranded F# kept on a C layer is
+ * stored on a button number, and meets the F or G already in that chord). The layer fold asks it
+ * to tell which landing spots are really free (midiLayerPlan.foldPlannedLayers).
+ */
+export function midiNoteNumberOnLayer(
+    midi: number,
+    instrumentName: string,
+    pitch: Pitch,
+    localOffset: number
+): number {
+    return transformMidiNumber(midi, {instrumentName, pitch, localOffset, maxScaling: 0}, 0).number
+}
+
+/**
  * Resolved Note Number for a track whose `notes[].midi` are ALREADY Note Numbers (percussion
  * mapped onto buttons by midiLayerPlan.mapPercussionNotes): no offset, fold or snap applies.
  */
@@ -442,6 +457,30 @@ function fillWithColumns(units: number, table: {tempoChanger: number; units: num
         }
     }
     return out
+}
+
+/**
+ * Whether the conversion keeps ONE file note on a layer at all: voiceable there (a button, or an
+ * accidental snapped to one) and inside the Addressable Span. Looser than midiNoteFitsLayer, which
+ * also refuses the snapped accidentals.
+ */
+export function midiNoteSurvivesOnLayer(
+    midi: number,
+    instrumentName: string,
+    pitch: Pitch,
+    localOffset: number
+): boolean {
+    const transformed = transformMidiNumber(midi, {instrumentName, pitch, localOffset, maxScaling: 0}, 0)
+    return transformed.voiceable && transformed.addressable
+}
+
+/**
+ * The finest column, in seconds, at `bpm` (the importer's column bpm). File notes closer than this
+ * may share a column: importMidiTracks groups chords within half of it, then snaps each chord to
+ * this grid, and two chords on one grid slot become one column.
+ */
+export function finestColumnSeconds(bpm: number): number {
+    return bpm > 0 ? 60 / bpm / columnUnitTable()[0].units : 0
 }
 
 export function importMidiTracks(

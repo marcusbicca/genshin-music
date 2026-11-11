@@ -73,3 +73,30 @@ describe('keeping a note with no key', () => {
     expect(plan.stats.pitch).toBe(1);
   });
 });
+
+describe('a destination that stores notes its own way', () => {
+  it('sees a collision on the stored identity, not the raw value', () => {
+    // the destination stores 66 (no key) as 65: a 66 kept there meets the 65 already in the chord
+    const identity = (value: number) => (value % 12 === 6 ? value - 1 : value);
+    const plan = planLayerMerge(
+      [{ slot: 0, value: 66 + 12 }],
+      cMajor,
+      (_, value) => identity(value) === 65,
+      'keep',
+      { identity }
+    );
+    expect(plan.values).toEqual([78]); // the free octave, not onto the 65
+    expect(plan.stats.merged).toBe(0);
+  });
+  it('takes the nearest key when no octave of a kept note can be held', () => {
+    const plan = planLayerMerge([{ slot: 0, value: 66 }], cMajor, () => false, 'keep', { canHold: () => false });
+    expect(plan.values).toEqual([65]);
+  });
+  it('treats landed notes in adjacent slots as one moment when asked', () => {
+    const notes = [
+      { slot: 0, value: 76 + 12 },
+      { slot: 1, value: 76 + 12 },
+    ];
+    expect(planLayerMerge(notes, cMajor, () => false, 'nearest', { slotRadius: 1 }).values).toEqual([76, 64]);
+  });
+});

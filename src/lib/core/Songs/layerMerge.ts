@@ -47,14 +47,27 @@ export function fitToKeys(
     return { value: pick(keys), move: 'pitch' }
 }
 
-/** `value` moved by whole octaves to the nearest place inside [lowest key, highest key]. */
-function intoRangeByOctaves(value: number, keys: readonly number[]): number {
+/**
+ * `value` (no key of `keys`) moved by whole octaves to between the lowest key and the highest: the
+ * nearest FREE such octave, else the nearest one. Strictly between, because a note with no key
+ * plays as a key next to it (the importer snaps it), and past the edge that key does not exist;
+ * and only where `canHold` says the destination keeps it. A range narrower than an octave may have
+ * no room for this pitch class at all: null, and the caller takes the nearest key instead.
+ */
+function intoRangeByOctaves(
+    value: number,
+    keys: readonly number[],
+    isFree: (value: number) => boolean,
+    canHold: (value: number) => boolean
+): number | null {
     const low = Math.min(...keys), high = Math.max(...keys)
-    let moved = value
-    while (moved > high) moved -= 12
-    while (moved < low) moved += 12
-    //a range narrower than an octave may have no room for this pitch class at all
-    return moved > high ? value : moved
+    const candidates: number[] = []
+    for (let moved = value - 12 * Math.ceil((value - low) / 12); moved < high; moved += 12) {
+        if (moved > low && canHold(moved)) candidates.push(moved)
+    }
+    if (candidates.length === 0) return null
+    candidates.sort((a, b) => Math.abs(a - value) - Math.abs(b - value) || a - b)
+    return candidates.find(isFree) ?? candidates[0]
 }
 
 /** One note of the source layer: where it sits in time (a column, a tick) and its value. */
@@ -105,17 +118,47 @@ export function planLayerMerge(
     notes: readonly MergeSourceNote[],
     keys: readonly number[],
     occupied: (slot: number, value: number) => boolean,
-    policy: MissingKeyPolicy = 'nearest'
+    policy: MissingKeyPolicy = 'nearest',
+    destination: {
+        /**
+         * The identity the destination STORES a value as. The composer stores every number as it
+         * is; the importer stores a note no key of the layer matches on a button number, so two
+         * different values can become one note there. Two notes collide when these agree.
+         */
+        identity?: (value: number) => number
+        /**
+         * Whether the destination can hold a value that is none of its keys at all. The composer
+         * holds any (a Stranded Note); the importer throws away one it cannot place on a button,
+         * so 'keep' must not send a note there.
+         */
+        canHold?: (value: number) => boolean
+        /** Notes this many slots apart still meet (the importer's slots are chord tolerances). */
+        slotRadius?: number
+    } = {}
 ): MergePlan {
+    const identity = destination.identity ?? ((value: number) => value)
+    const canHold = destination.canHold ?? (() => true)
     const stats: MergeStats = { kept: 0, octave: 0, pitch: 0, merged: 0 }
     const landed = new Set<string>()
     let cost = 0
+    const radius = destination.slotRadius ?? 0
+    const taken = (slot: number, value: number) => {
+        if (occupied(slot, value)) return true
+        for (let near = slot - radius; near <= slot + radius; near++) {
+            if (landed.has(`${near}:${identity(value)}`)) return true
+        }
+        return false
+    }
+    const land = (slot: number, value: number) => {
+        if (taken(slot, value)) {
+            stats.merged++
+            cost += MERGED_COST
+        }
+        landed.add(`${slot}:${identity(value)}`)
+        return value
+    }
     const values = notes.map((note) => {
-        const fit = fitToKeys(
-            note.value,
-            keys,
-            (key) => !occupied(note.slot, key) && !landed.has(`${note.slot}:${key}`)
-        )
+        const fit = fitToKeys(note.value, keys, (key) => !taken(note.slot, key))
         if (fit === null) {
             stats.pitch++
             cost += PITCH_COST * 2
@@ -131,15 +174,19 @@ export function planLayerMerge(
             //kept as it is, but inside the destination's range: a note past it would be thrown away
             //as out of range by the importer, or sit off the composer's grid - the octave is the
             //one thing that may move, so the note stays itself and stays visible
-            if (policy === 'keep') return intoRangeByOctaves(note.value, keys)
+            if (policy === 'keep') {
+                const value = intoRangeByOctaves(
+                    note.value,
+                    keys,
+                    (value) => !taken(note.slot, value),
+                    canHold
+                )
+                //no octave of it fits a range this narrow: past the range it would be thrown away
+                //(or sit off the grid), so it takes the nearest key after all - changed, not lost
+                return land(note.slot, value ?? fit.value)
+            }
         }
-        const key = `${note.slot}:${fit.value}`
-        if (occupied(note.slot, fit.value) || landed.has(key)) {
-            stats.merged++
-            cost += MERGED_COST
-        }
-        landed.add(key)
-        return fit.value
+        return land(note.slot, fit.value)
     })
     return { values, stats, cost }
 }

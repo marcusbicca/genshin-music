@@ -10,6 +10,9 @@
   import {
     importMidiTracks,
     midiNoteFitsLayer,
+    midiNoteNumberOnLayer,
+    finestColumnSeconds,
+    midiNoteSurvivesOnLayer,
     suggestOffset,
     suggestTrackFit,
     type MidiImportTrack,
@@ -572,6 +575,9 @@
   ): PlannedLayer[] {
     const folded = foldPlannedLayers(plan, track.layerMerges, {
       keysOf: (layer) => playableMidi(layer.instrumentName, layer.pitch, localOffset),
+      numberOf: (layer, midi) => midiNoteNumberOnLayer(midi, layer.instrumentName, layer.pitch, localOffset),
+      sameMomentSeconds: finestColumnSeconds(bpm),
+      survives: (layer, midi) => midiNoteSurvivesOnLayer(midi, layer.instrumentName, layer.pitch, localOffset),
       policy: fitPolicy,
     });
     track.plannedLayers = folded.listing;

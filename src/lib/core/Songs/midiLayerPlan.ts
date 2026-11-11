@@ -276,7 +276,23 @@ export function plannedLayerKey(layer: PlannedLayer): string {
 export function foldPlannedLayers(
     plan: readonly PlannedLayer[],
     merges: Readonly<Record<string, string>>,
-    options: {keysOf: (layer: PlannedLayer) => readonly number[]; policy: MissingKeyPolicy}
+    options: {
+        keysOf: (layer: PlannedLayer) => readonly number[]
+        policy: MissingKeyPolicy
+        /**
+         * The number a file note is stored as on a layer (midiNoteNumberOnLayer): a note that is
+         * not one of the layer's keys lands on a button number, and meets whatever is there.
+         * Without it, file note numbers are compared as they are.
+         */
+        numberOf?: (layer: PlannedLayer, midi: number) => number
+        /**
+         * Notes starting this close (seconds) may share a column in the conversion
+         * (finestColumnSeconds): a landing spot this close to a note already there is taken.
+         */
+        sameMomentSeconds?: number
+        /** Whether the conversion keeps a file note on a layer at all (midiNoteSurvivesOnLayer). */
+        survives?: (layer: PlannedLayer, midi: number) => boolean
+    }
 ): {layers: PlannedLayer[]; listing: FoldListing[]} {
     const keysCache = new Map<string, readonly number[]>()
     const keysOf = (layer: PlannedLayer) => {
@@ -284,14 +300,26 @@ export function foldPlannedLayers(
         if (!keysCache.has(key)) keysCache.set(key, options.keysOf(layer))
         return keysCache.get(key) as readonly number[]
     }
-    const slot = (time: number) => Math.round(time * 1000)
+    const tolerance = options.sameMomentSeconds ?? 0
+    const slot = (time: number) => (tolerance > 0 ? Math.round(time / tolerance) : Math.round(time * 1000))
     const planInto = (source: PlannedLayer, target: PlannedLayer) => {
-        const occupied = new Set(target.notes.map((note) => `${slot(note.time)}:${note.midi}`))
+        const identity = (midi: number) => options.numberOf?.(target, midi) ?? midi
+        const occupied = new Set(target.notes.map((note) => `${slot(note.time)}:${identity(note.midi)}`))
         return planLayerMerge(
             source.notes.map((note) => ({slot: slot(note.time), value: note.midi})),
             keysOf(target),
-            (at, value) => occupied.has(`${at}:${value}`),
-            options.policy
+            //the neighbouring slots too when slots are tolerances: two notes a hair apart across a
+            //slot boundary still share a column
+            (at, value) =>
+                tolerance > 0
+                    ? [at - 1, at, at + 1].some((near) => occupied.has(`${near}:${identity(value)}`))
+                    : occupied.has(`${at}:${identity(value)}`),
+            options.policy,
+            {
+                identity,
+                canHold: (midi) => options.survives?.(target, midi) ?? true,
+                slotRadius: tolerance > 0 ? 1 : 0,
+            }
         )
     }
     //whether following the chosen folds from `key` comes back to `to`: such a destination would
