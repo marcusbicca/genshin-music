@@ -253,7 +253,15 @@
   /** The notes of a track inside the selected section, re-timed so the section starts at 0. */
   function trackNotes(track: CustomTrack): { midi: number; time: number; duration: number }[] {
     const section = activeSection;
-    if (!section) return track.track.notes;
+    //plain copies: the file's notes are @tonejs/midi objects whose time and duration are getters,
+    //which every `{...note}` further down would silently lose
+    if (!section) {
+      return track.track.notes.map((note) => ({
+        midi: note.midi,
+        time: note.time,
+        duration: note.duration,
+      }));
+    }
     return track.track.notes
       .filter((note) => note.time >= section.start - 1e-3 && note.time < section.end - 1e-3)
       .map((note) => ({

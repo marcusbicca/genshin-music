@@ -296,3 +296,29 @@ describe('foldPlannedLayers offers no loop', () => {
         expect(forB.suggested).toBe('main')
     })
 })
+
+describe('notes read straight from a MIDI file', () => {
+    // @tonejs/midi notes keep time and duration as prototype getters: a spread copy loses them
+    class FileNote {
+        constructor(public midi: number, private start: number) {}
+        get time() { return this.start }
+        get duration() { return 0.25 }
+    }
+
+    it('keep their time when a phrase moves', () => {
+        const notes = [highest - 2, highest, highest + 2].map((midi, i) => new FileNote(midi, i * 0.25))
+        const result = foldPhrases(notes, {instruments: [instrument], pitch: 'C', localOffset: 0, phraseGapSeconds: 0.5, maxOctaves: 2})
+        expect(result.movedPhrases).toBe(1)
+        expect(result.notes.map(n => [n.time, n.duration])).toEqual([[0, 0.25], [0.25, 0.25], [0.5, 0.25]])
+    })
+
+    it('keep their time when a layer is folded into another', () => {
+        const plan = [
+            {instrumentName: instrument, pitch: 'C' as const, role: 'main' as const, notes: [new FileNote(lowest, 0)]},
+            {instrumentName: instrument, pitch: 'D' as const, role: 'auxiliary' as const, notes: [new FileNote(lowest + 12, 1), new FileNote(lowest + 14, 2)]},
+        ]
+        const folded = foldPlannedLayers(plan, {[`${instrument}@D`]: 'main'}, {keysOf: () => [lowest, lowest + 2, lowest + 12, lowest + 14], policy: 'keep'})
+        expect(folded.layers).toHaveLength(1)
+        expect(folded.layers[0].notes.map(n => n.time)).toEqual([0, 1, 2])
+    })
+})

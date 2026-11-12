@@ -23,6 +23,16 @@ import {planLayerMerge, suggestMergeTarget, type MergeStats, type MissingKeyPoli
 
 export type PlanNote = {midi: number; time: number; duration: number}
 
+/**
+ * A copy of `note` at another MIDI number. Built field by field, never by spreading: the importer's
+ * notes are @tonejs/midi Note objects, whose `time` and `duration` are prototype getters a spread
+ * does not copy - a moved note came out with no time at all, and every one of them landed in one
+ * column, where all but a few were merged away as duplicates.
+ */
+export function movedNote(note: PlanNote, midi: number): PlanNote {
+    return {midi, time: note.time, duration: note.duration}
+}
+
 function instrumentData(instrumentName: string) {
     return INSTRUMENTS_DATA[instrumentName as keyof typeof INSTRUMENTS_DATA]
         ?? INSTRUMENTS_DATA[INSTRUMENTS[0]]
@@ -174,7 +184,7 @@ export function foldPhrases(notes: readonly PlanNote[], options: PhraseFoldOptio
             if (bestCount - here < Math.max(1, phrase.length * MIN_PHRASE_GAIN)) best = 0
         }
         if (best !== 0) movedPhrases++
-        for (const note of phrase) out.push(best === 0 ? note : {...note, midi: note.midi + best})
+        for (const note of phrase) out.push(best === 0 ? note : movedNote(note, note.midi + best))
     }
     return {notes: out, movedPhrases}
 }
@@ -383,7 +393,7 @@ export function foldPlannedLayers(
         const merge = planInto(layer, target)
         layer.notes.forEach((note, i) => {
             const value = merge.values[i]
-            if (value !== null) target.notes.push({...note, midi: value})
+            if (value !== null) target.notes.push(movedNote(note, value))
         })
     }
     return {layers: layers.filter((layer) => !folded.has(plannedLayerKey(layer))), listing}
